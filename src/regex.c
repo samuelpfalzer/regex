@@ -3,13 +3,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+
+//========== DEFINITIONS ==========
+
+
 #define MAX_LEVELS 20
 
 const char* REGULAR_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const char* ESCAPED_SYMBOLS = "^$()[]{}\\*+?.|";
 const char* ALL_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789^$()[]{}\\*+?.|";
 
+
+//========== HELPER FUNCTIONS ==========
+
+
 static int in(const char a, const char* b, int length) {
+    if (b == NULL) {
+        return 0;
+    }
     for (int i = 0; i < length; i++) {
         if (b[i] == a) {
             return 1;
@@ -18,13 +29,29 @@ static int in(const char a, const char* b, int length) {
     return 0;
 }
 
+// simple bubblesort to sort a small array of size ~5
+int sort_int_array(int* array, int size) {
+    int changes = 1;
+    while (changes > 0) {
+        changes = 0;
+        for (int i = 0; i < size-1; i++) {
+            if (array[i] > array[i+1]) {
+                int temp = array[i];
+                array[i] = array[i+1];
+                array[i+1] = temp;
+                changes++;
+            }
+        }
+    }
+    return 1;
+}
 
-//========== COMPILING ==========
 
-// helper functions
+
 int parse(regex** r, char* input);
-int make_epsilon_free(regex** r);
+int make_epsilon_free(regex* r);
 int minify(regex** r);
+int make_deterministic(regex* r);
 
 void free_regex(regex** r);
 void free_state(state* s);
@@ -50,13 +77,22 @@ void regex_maybe(regex* a);
 
 
 
+//========== COMPILE FUNCTION ==========
+
+
+
 int compile(regex** r, char* input) {
     int success = parse(r, input);
-    //make_epsilon_free(r);
-    //minify(r);
+    make_epsilon_free(*r);
+    make_deterministic(*r);
 
     return success;    
 }
+
+
+
+//========== PARSE FUNCTION ==========
+
 
 
 int parse(regex** r, char* input) {
@@ -339,7 +375,7 @@ int parse(regex** r, char* input) {
                 if (input[pos+2] == '?') {
                     printf("(lazy * iteration)\n");
                     for (int i = 0; i < r_temp->size; i++) {
-                        if (r_temp->states[i]->type == end) {
+                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = lazy;
                         }
                     }
@@ -350,7 +386,7 @@ int parse(regex** r, char* input) {
                 else {
                     printf("(greedy * iteration)\n");
                     for (int i = 0; i < r_temp->size;  i++) {
-                        if (r_temp->states[i]->type == end) {
+                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = greedy;
                         }
                     }
@@ -368,7 +404,7 @@ int parse(regex** r, char* input) {
                 if (input[pos+2] == '?') {
                     printf("(lazy + iteration)\n");
                     for (int i = 0; i < r_temp->size; i++) {
-                        if (r_temp->states[i]->type == end) {
+                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = lazy;
                         }
                     }
@@ -379,7 +415,7 @@ int parse(regex** r, char* input) {
                 else {
                     printf("(greedy + iteration)\n");
                     for (int i = 0; i < r_temp->size; i++) {
-                        if (r_temp->states[i]->type == end) {
+                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = greedy;
                         }
                     }
@@ -490,9 +526,323 @@ int parse(regex** r, char* input) {
 }
 
 
-int make_epsilon_free(regex** r) {
+
+//========== EPSILON FUNCTION ==========
+
+
+
+int make_epsilon_free(regex* r) {
+
+    // calculate epsilon closure for every state
+    // visited is initialized with 0
+    // and marked with 1 when visited
+    int* ec_size = malloc(r->size * sizeof(int));
+    int** ec = malloc(r->size * sizeof(int*));
+    int* marked = malloc(r->size * sizeof(int));
+    int stack_size = 0;
+    int* stack;
+
+    for (int i = 0; i < r->size; i++) {
+        ec_size[i] = 0;
+    }
+
+    // iterate over all states and calculate the epsilon closures
+    for (int i = 0; i < r->size; i++) {
+        for (int j = 0; j < r->size; j++) {
+            marked[j] = 0;
+        }
+        // look if there's already a marked set of states from previous iterations
+        if (ec_size[i] > 0) {
+            stack = malloc(ec_size[i] * sizeof(int));
+            for (int j = 0; j < ec_size[i]; j++) {
+                stack[j] = ec[i][j];
+                marked[j] = 1;
+            }
+        } else {
+            stack = malloc(sizeof(int));
+            stack[stack_size++] = i;
+            marked[i] = 1;
+        }
+        
+        // TODO: make more efficient!
+        // mark all reachable states
+        while (stack_size > 0) {
+            int c = stack[--stack_size];
+            stack = realloc(stack, stack_size * sizeof(int));
+            // iterate over all transitions of state c
+            for (int j = 0; j < r->states[c]->size; j++) {
+                if (r->states[c]->transitions[j]->epsilon) {
+                    if (!marked[r->states[c]->transitions[j]->next_state]) {
+                        marked[r->states[c]->transitions[j]->next_state] = 1;
+                        stack = realloc(stack, ++stack_size * sizeof(int));
+                        stack[stack_size-1] = r->states[c]->transitions[j]->next_state;
+                    }
+                }
+            }
+        }
+        
+        // put the reachable states into ec
+        for (int j = 0; j < r->size; j++) {
+            if (marked[j]) {
+                ec[i] = realloc(ec[i], ++ec_size[i]);
+                ec[i][ec_size[i]-1] = j;
+            }
+        }
+    }
+    free(stack);
+
+
+    // first remove all epsilon transitions to save time
+    for (int i = 0; i < r->size; i++) {
+        for (int j = r->states[i]->size - 1; j >= 0; j--) {
+            if (r->states[i]->transitions[j]->epsilon) {
+                free(r->states[i]->transitions[j]);
+                r->states[i]->transitions = realloc(r->states[i]->transitions, --(r->states[i]->size) * sizeof(transition*));
+            }
+        }
+    }
+
+    // make a list of all symbols the automaton knows
+    int nr_symbols = 0;
+    char* symbols;
+
+    for (int i = 0; i < r->size; i++) {
+        for (int j = 0; j < r->states[i]->size; j++) {
+            if (nr_symbols == 0) {
+                symbols = realloc(symbols, ++nr_symbols * sizeof(char));
+                symbols[nr_symbols-1] = r->states[i]->transitions[j]->symbol;
+            } else if (!in(r->states[i]->transitions[j]->symbol, symbols, nr_symbols)) {
+                symbols = realloc(symbols, ++nr_symbols * sizeof(char));
+                symbols[nr_symbols-1] = r->states[i]->transitions[j]->symbol;
+            }
+        }
+    }
+
+    // iterate over all states and write the new transitions
+    for (int i = 0; i < r->size; i++) {
+
+        // iterate over possible symbols
+        for (int j = 0; j < nr_symbols; j++) {
+
+            // mark all states as not reachable
+            for (int k = 0; k < r->size; k++) {
+                marked[k] = 0;
+            }
+
+            char symbol = symbols[j];
+
+            // iterate over all states in the epsilon closure
+            // mark their successor if they have a transition with the current symbol
+            for (int k = 0; k < ec_size[i]; k++) {
+                for (int l = 0; l < r->states[ec[i][k]]->size; l++) {
+                    if (r->states[ec[i][k]]->transitions[l]->symbol == symbol) {
+                        marked[r->states[ec[i][k]]->transitions[l]->next_state] = 1;
+                    }
+                }
+            }
+
+            // now all states directly reachable with symbol from i's epsilon closure
+            // are marked -> mark the epsilon closure of those symbols
+            for (int k = 0; k < r->size; k++) {
+                if (marked[k]) {
+                    for (int l = 0; l < ec_size[k]; l++) {
+                        marked[ec[k][l]] = 1;
+                    }
+                }
+            }
+
+            // remove duplicates: iterate over the state's transitions
+            for (int k = 0; k < r->states[i]->size; k++) {
+                if (r->states[i]->transitions[k]->symbol == symbols[j] && marked[r->states[i]->transitions[k]->next_state]) {
+                    marked[r->states[i]->transitions[k]->next_state] = 0;
+                }
+            }
+            
+            // now all states that can be reached with symbol are marked
+            // add transitions for them
+            for (int k = 0; k < r->size; k++) {
+                if (marked[k]) {
+                    r->states[i]->transitions = realloc(r->states[i]->transitions, ++(r->states[i]->size) * sizeof(transition*));
+                    r->states[i]->transitions[r->states[i]->size-1] = new_transition(0, symbol, k);
+                }
+            }
+            
+        }
+
+    }
+    
+    free(marked);
+    free(ec_size);
+    for (int i = 0; i < r->size; i++) {
+        free(ec[i]);
+    }
+    free(ec);
+
     return 0;
 }
+
+
+int make_deterministic(regex* r) {
+    // parallel arrays for the new combined states
+    int** state_sets = NULL;
+    int* nr_states = NULL;
+    int nr_state_sets = 0;
+    state** states = NULL;
+
+    // stack for storing newly found states
+    int* stack = NULL;
+    int stack_size = 0;
+
+    // string with all symbols the automaton knows
+    char* symbols = NULL;
+    int nr_symbols = 0;
+
+    // iterate over states
+    for (int i = 0; i < r->size; i++) {
+        // iterate over transitions
+        for (int j = 0; j < r->states[i]->size; j++) {
+            // accumulate all symbols
+            if (!in(r->states[i]->transitions[j]->symbol, symbols, nr_symbols)) {
+                symbols = realloc(symbols, ++nr_symbols * sizeof(char));
+                symbols[nr_symbols-1] = r->states[i]->transitions[j]->symbol;
+            }
+        }
+    }
+
+    // initialize the stack
+    stack = malloc(++stack_size * sizeof(int));
+    stack[0] = 0;
+
+    // initialize the state structures
+    state_sets = malloc(sizeof(int*));
+    state_sets[0] = malloc(sizeof(int));
+    state_sets[0][0] = 0;
+    nr_states = malloc(sizeof(int));
+    nr_states[0] = 1;
+    nr_state_sets++;
+    states = malloc(sizeof(state*));
+    states[0] = new_state(0, none, (r->states[0]->type == start_end) ? start_end : start);
+
+    // process all states on the stack
+    while (stack_size > 0) {
+
+        int state_pos = stack[--stack_size];
+        stack = realloc(stack, stack_size);
+
+        // iterate over symbols
+        for (int i = 0; i < nr_symbols; i++) {
+            int end_state_marker = 0;
+            char symbol = symbols[i];
+
+            // accumulate all possible next states
+            int* next_states = NULL;
+            int nr_next_states = 0;
+
+            // iterate over all old states that belong to the current combined state
+            for (int j = 0; j < nr_states[state_pos]; j++) {
+                int state_nr = state_sets[state_pos][j];
+
+                // find all next states with the current symbol
+                for (int k = 0; k < r->states[state_nr]->size; k++) {
+                    if (r->states[state_nr]->transitions[k]->symbol == symbol) {
+                        int already_there = 0;
+                        // check if the next_state is already contained in next_states
+                        for (int l = 0; l < nr_next_states; l++) {
+                            if (r->states[state_nr]->transitions[k]->next_state == next_states[l]) {
+                                already_there = 1;
+                                break;
+                            }
+                        }
+                        if (!already_there) {
+                            next_states = realloc(next_states, ++nr_next_states * sizeof(int));
+                            next_states[nr_next_states-1] = r->states[state_nr]->transitions[k]->next_state;
+                            
+                            // check if it is an end state -> must be marked in the new state
+                            if (r->states[r->states[state_nr]->transitions[k]->next_state]->type == end || r->states[r->states[state_nr]->transitions[k]->next_state]->type == start_end) {
+                                printf("got here\n");
+                                end_state_marker = 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (nr_next_states == 0) {
+                free(next_states);
+                continue;
+            }
+
+            sort_int_array(next_states, nr_next_states);
+
+            // check if this combination of old states already exists
+            int exists = -1;
+
+            for (int j = 0; j < nr_state_sets; j++) {
+                if (nr_states[j] == nr_next_states) {
+                    exists = j;
+                    for (int k = 0; k < nr_next_states; k++) {
+                        if (next_states[k] != state_sets[j][k]) {
+                            exists = -1;
+                            break;
+                        }
+                    }
+                    if (exists > -1) {
+                        break;
+                    }
+                }
+            }
+
+            // state is new and needs to be created
+            if (exists < 0) {
+                // save the state with its partial states and create the corresponding transition
+                state_sets = realloc(state_sets, ++nr_state_sets * (sizeof(int*)));
+                state_sets[nr_state_sets-1] = malloc(nr_next_states * sizeof(int));
+                for (int j = 0; j < nr_next_states; j++) {
+                    state_sets[nr_state_sets-1][j] = next_states[j];
+                }
+                nr_states = realloc(nr_states, nr_state_sets * sizeof(int));
+                nr_states[nr_state_sets-1] = nr_next_states;
+                states = realloc(states, nr_state_sets * sizeof(state));
+                
+                states[nr_state_sets-1] = new_state(0, none, ((end_state_marker == 1) ? end : middle));
+                
+                exists = nr_state_sets - 1;
+
+                // push the new state to the stack so it will be processed
+                stack = realloc(stack, ++stack_size * sizeof(int));
+                stack[stack_size-1] = exists;
+            }
+
+            // now the current state can be linked to the created next_state
+            states[state_pos]->transitions = realloc(states[state_pos]->transitions, ++(states[state_pos]->size) * sizeof(transition*));
+            states[state_pos]->transitions[states[state_pos]->size-1] = new_transition(0, symbol, exists);
+
+            free(next_states);
+        }
+    }
+
+    // replace the old regex object with the new one
+    for (int i = 0; i < r->size; i++) {
+        free_state(r->states[i]);
+        free(r->states[i]);
+    }
+    free(r->states);
+    r->states = states;
+    r->size = nr_state_sets;
+
+    // free resources
+    free(nr_states);
+    for (int i = 0; i < nr_state_sets; i++) {
+        free(state_sets[i]);
+    }
+    free(state_sets);
+    free(stack);
+    free(symbols);
+
+    return 0;
+}
+
+
 
 
 int minify(regex** r) {
@@ -509,6 +859,7 @@ void free_regex(regex** r) {
         free_state((*r)->states[i]);
         free((*r)->states[i]);
     }
+    free((*r)->states);
     
     free(*r);
     *r = NULL;
@@ -519,6 +870,7 @@ void free_state(state* s) {
     for (int i = 0; i < s->size; i++) {
         free(s->transitions[i]);
     }
+    free(s->transitions);
 }
 
 
@@ -585,7 +937,7 @@ void regex_concat(regex* a, regex* b) {
     // as normal states
     for (int i = 0; i < a->size; i++) {
         state* s = a->states[i];
-        if (s->type == end) {
+        if (s->type == end || s->type == start_end) {
             s->size++;
             s->transitions = realloc(s->transitions, s->size * sizeof(transition*));
             // connect to a->size because the start state always is the first
@@ -637,15 +989,12 @@ void regex_alternative(regex* a, regex* b) {
 
 
 void regex_repeat(regex* a) {
-    // create one additional end state and connect the start state to it
-    a->states = realloc(a->states, ++(a->size) * sizeof(state*));
-    a->states[a->size-1] = new_state(0, none, end);
-    a->states[0]->transitions = realloc(a->states[0]->transitions, ++(a->states[0]->size) * sizeof(transition*));
-    a->states[0]->transitions[a->states[0]->size-1] = new_transition(1, ' ', a->size-1);
+    // mark the start state as an end state additionally
+    regex_maybe(a);
 
     // connect all end states to the start state
     for (int i = 0; i < a->size; i++) {
-        if (a->states[i]->type == end) {
+        if (a->states[i]->type == end || a->states[i]->type == start_end) {
             a->states[i]->transitions = realloc(a->states[i]->transitions, ++(a->states[i]->size) * sizeof(transition*));
             a->states[i]->transitions[a->states[i]->size-1] = new_transition(1, ' ', 0);
         }
@@ -655,11 +1004,8 @@ void regex_repeat(regex* a) {
 
 
 void regex_maybe(regex* a) {
-    // create one additional end state and connect the start state to it
-    a->states = realloc(a->states, ++(a->size) * sizeof(state*));
-    a->states[a->size-1] = new_state(0, none, end);
-    a->states[0]->transitions = realloc(a->states[0]->transitions, ++(a->states[0]->size) * sizeof(transition*));
-    a->states[0]->transitions[a->states[0]->size-1] = new_transition(1, ' ', a->size-1);
+    // mark the start state as additional end state
+    a->states[0]->type = start_end;
 }
 
 
@@ -670,7 +1016,7 @@ void print_regex(regex* r) {
         printf(
             " - %i: %s; %i; %s\n",
             i,
-            (s->type == start) ? "start" : ((s->type == end) ? "end" : "middle"),
+            (s->type == start) ? "start" : ((s->type == end|| s->type == start_end) ? (s->type == end ? "end" : "start_end") : "middle"),
             s->size,
             (s->behavior == lazy) ? "lazy" : ((s->behavior == greedy) ? "greedy" : "none"));
         for (int j = 0; j < s->size; j++) {

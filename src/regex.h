@@ -29,7 +29,7 @@ typedef struct {
 typedef struct {
     int size;
     enum {lazy, greedy, none} behavior;
-    enum {start, middle, end} type;
+    enum {start, middle, end, start_end} type;
     transition** transitions;
 } state;
 
