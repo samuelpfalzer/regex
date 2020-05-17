@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+
 stack* new_stack(int type_size, void (*free_func)(void*)) {
     stack* s = (stack*) malloc(sizeof(stack));
     s->type_size = type_size;
@@ -11,11 +12,13 @@ stack* new_stack(int type_size, void (*free_func)(void*)) {
     return s;
 }
 
+
 int stack_push(stack* s, void* element_ptr) {
     s->content = realloc(s->content, ++(s->size) * s->type_size);
     memcpy((void*)(s->content + (s->size-1) * s->type_size), element_ptr, s->type_size);
     return 1;
 }
+
 
 int stack_pop(stack* s, void* element_ptr) {
     if (!s->size) {
@@ -26,7 +29,14 @@ int stack_pop(stack* s, void* element_ptr) {
     return 1;
 }
 
+
+// TODO: check if of free_func() works
 int delete_stack(stack** s) {
+    if ((*s)->free_func != NULL) {
+        while ((*s)->size) {
+            (*s)->free_func((void*)(*s)->content + ((*s)->size-1) * (*s)->type_size);
+        }
+    }
     free(*s);
     *s = NULL;
     return 1;

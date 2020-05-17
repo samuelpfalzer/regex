@@ -1,3 +1,6 @@
+#ifndef REGEX_H
+#define REGEX_H
+
 /*
 
 supported regular expression subset:
@@ -70,3 +73,6 @@ int regex_compile_match(char* r, char* c, int* locations, int* lengths);
 
 // prints a compiled regex to the terminal
 void print_regex(regex* r);
+
+
+#endif

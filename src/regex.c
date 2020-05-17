@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "stack.h"
 
 
 
@@ -32,7 +33,7 @@ int sort_int_array(int* array, int size);
 int parse(regex** r, char* input);
 
 // removes all epsilon transitions from a NFA
-int make_epsilon_free(regex* r);
+int remove_epsilon_transitions(regex* r);
 
 // converts an epsilon free NFA into a DFA
 int make_deterministic(regex* r);
@@ -84,8 +85,8 @@ int regex_compile(regex** r, char* input) {
         return 0;
     };
 
-    if (!make_epsilon_free(*r)) {
-        printf("ERROR: make_epsilon_free failed\n");
+    if (!remove_epsilon_transitions(*r)) {
+        printf("ERROR: remove_epsilon_transitions failed\n");
         return 0;
     };
 
@@ -507,15 +508,14 @@ int parse(regex** r, char* input) {
 
 
 
-int make_epsilon_free(regex* r) {
+int remove_epsilon_transitions(regex* r) {
     // calculate epsilon closure for every state
     // visited is initialized with 0
     // and marked with 1 when visited
     int* ec_size = malloc(r->size * sizeof(int));
     int** ec = malloc(r->size * sizeof(int*));
     int* marked = malloc(r->size * sizeof(int));
-    int stack_size = 0;
-    int* stack;
+    stack* s = new_stack(sizeof(int), NULL);
 
     for (int i = 0; i < r->size; i++) {
         ec_size[i] = 0;
@@ -528,29 +528,25 @@ int make_epsilon_free(regex* r) {
         }
         // look if there's already a marked set of states from previous iterations
         if (ec_size[i] > 0) {
-            stack = malloc(ec_size[i] * sizeof(int));
             for (int j = 0; j < ec_size[i]; j++) {
-                stack[j] = ec[i][j];
+                stack_push(s, &(ec[i][j]));
                 marked[j] = 1;
             }
         } else {
-            stack = malloc(sizeof(int));
-            stack[stack_size++] = i;
+            stack_push(s, &i);
             marked[i] = 1;
         }
         
-        // TODO: make more efficient!
+        // TODO: make more efficient by writing intermediate results
         // mark all reachable states
-        while (stack_size > 0) {
-            int c = stack[--stack_size];
-            stack = realloc(stack, stack_size * sizeof(int));
+        int c;
+        while (stack_pop(s, &c)) {
             // iterate over all transitions of state c
             for (int j = 0; j < r->states[c]->size; j++) {
                 if (r->states[c]->transitions[j]->epsilon) {
                     if (!marked[r->states[c]->transitions[j]->next_state]) {
                         marked[r->states[c]->transitions[j]->next_state] = 1;
-                        stack = realloc(stack, ++stack_size * sizeof(int));
-                        stack[stack_size-1] = r->states[c]->transitions[j]->next_state;
+                        stack_push(s, &(r->states[c]->transitions[j]->next_state));
                     }
                 }
             }
@@ -564,7 +560,7 @@ int make_epsilon_free(regex* r) {
             }
         }
     }
-    free(stack);
+    delete_stack(&s);
 
     // first remove all epsilon transitions to save time
     for (int i = 0; i < r->size; i++) {
@@ -664,8 +660,7 @@ int make_deterministic(regex* r) {
     state** states = NULL;
 
     // stack for storing newly found states
-    int* stack = NULL;
-    int stack_size = 0;
+    stack* s = new_stack(sizeof(int), NULL);
 
     // string with all symbols the automaton knows
     char* symbols = NULL;
@@ -684,8 +679,8 @@ int make_deterministic(regex* r) {
     }
 
     // initialize the stack
-    stack = malloc(++stack_size * sizeof(int));
-    stack[0] = 0;
+    int start_state = 0;
+    stack_push(s, &start_state);
 
     // initialize the state structures
     state_sets = malloc(sizeof(int*));
@@ -698,11 +693,8 @@ int make_deterministic(regex* r) {
     states[0] = new_state(0, none, (r->states[0]->type == start_end) ? start_end : start);
 
     // process all states on the stack
-    while (stack_size > 0) {
-
-        int state_pos = stack[--stack_size];
-        stack = realloc(stack, stack_size);
-
+    int state_pos;
+    while (stack_pop(s, &state_pos)) {
         // iterate over symbols
         for (int i = 0; i < nr_symbols; i++) {
             int end_state_marker = 0;
@@ -782,8 +774,7 @@ int make_deterministic(regex* r) {
                 exists = nr_state_sets - 1;
 
                 // push the new state to the stack so it will be processed
-                stack = realloc(stack, ++stack_size * sizeof(int));
-                stack[stack_size-1] = exists;
+                stack_push(s, &exists);
             }
 
             // now the current state can be linked to the created next_state
@@ -809,7 +800,7 @@ int make_deterministic(regex* r) {
         free(state_sets[i]);
     }
     free(state_sets);
-    free(stack);
+    delete_stack(&s);
     free(symbols);
 
     return 1;
