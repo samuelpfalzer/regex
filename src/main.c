@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "regex.h"
+#include "stack.h"
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
@@ -31,5 +32,6 @@ int main(int argc, char* argv[]) {
         printf("no match\n");
     }
 
+    getchar();
     return 0;
 }

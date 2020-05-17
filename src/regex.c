@@ -4,14 +4,16 @@
 #include <string.h>
 
 
+
 //========== DEFINITIONS ==========
+
 
 
 #define MAX_LEVELS 20
 
 const char* REGULAR_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const char* ESCAPED_SYMBOLS = "^$()[]{}\\*+?.|";
-const char* ALL_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789^$()[]{}\\*+?.|";
+const char* ESCAPED_SYMBOLS = "-^$()[]{}\\*+?.|";
+const char* ALL_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789^$()[]{}\\*+?.|-";
 
 
 //========== PRIVATE FUNCTION DECLARATIONS ==========
