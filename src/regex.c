@@ -14,66 +14,59 @@ const char* ESCAPED_SYMBOLS = "^$()[]{}\\*+?.|";
 const char* ALL_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789^$()[]{}\\*+?.|";
 
 
-//========== HELPER FUNCTIONS ==========
+//========== PRIVATE FUNCTION DECLARATIONS ==========
 
 
-static int in(const char a, const char* b, int length) {
-    if (b == NULL) {
-        return 0;
-    }
-    for (int i = 0; i < length; i++) {
-        if (b[i] == a) {
-            return 1;
-        }
-    }
-    return 0;
-}
+// checks if string b contains character a
+static int in(const char a, const char* b, int length);
+
+
 
 // simple bubblesort to sort a small array of size ~5
-int sort_int_array(int* array, int size) {
-    int changes = 1;
-    while (changes > 0) {
-        changes = 0;
-        for (int i = 0; i < size-1; i++) {
-            if (array[i] > array[i+1]) {
-                int temp = array[i];
-                array[i] = array[i+1];
-                array[i+1] = temp;
-                changes++;
-            }
-        }
-    }
-    return 1;
-}
+int sort_int_array(int* array, int size);
 
-
-
+// compiles the input string to a regex structure
+// returns 1 on success, 0 else
 int parse(regex** r, char* input);
+
+// removes all epsilon transitions from a NFA
 int make_epsilon_free(regex* r);
-int minify(regex** r);
+
+// converts an epsilon free NFA into a DFA
 int make_deterministic(regex* r);
 
+// free a regex and all its elements recursively
 void free_regex(regex** r);
+
+// free a state and all its elements recursively
 void free_state(state* s);
 
+// returns a new malloced regex instance with all elements set to 0
 regex* new_regex();
+
+// returns a new malloced regex instance with a single transition
 regex* new_single_regex(char symbol);
+
+// returns a malloced copy of the regex r
 regex* copy_regex(regex* r);
 
-state* new_state();
+// returns a malloced state instance with all elements set to 0
+state* new_state(int size, int behavior, int type);
+
+// returns a malloced transition
 transition* new_transition(int epsilon, char symbol, int next_state);
 
-// concatenate b into a; erases b
+// concatenate b at the end of a
 void regex_concat(regex* a, regex* b);
 
 // expand a to implement a choice between itself and b
 void regex_alternative(regex* a, regex* b);
 
-// build the kleen-* of a
+// repeat the regex a 0 or more times
 void regex_repeat(regex* a);
 
-// a or epsilon
-void regex_maybe(regex* a);
+// repeat the regex a 0 or 1 times
+void regex_optional(regex* a);
 
 
 
@@ -81,12 +74,25 @@ void regex_maybe(regex* a);
 
 
 
-int compile(regex** r, char* input) {
-    int success = parse(r, input);
-    make_epsilon_free(*r);
-    make_deterministic(*r);
+int regex_compile(regex** r, char* input) {
+    free_regex(r);
 
-    return success;    
+    if (!parse(r, input)) {
+        printf("ERROR: parse failed\n");
+        return 0;
+    };
+
+    if (!make_epsilon_free(*r)) {
+        printf("ERROR: make_epsilon_free failed\n");
+        return 0;
+    };
+
+    if (!make_deterministic(*r)) {
+        printf("ERROR: make_deterministic failed\n");
+        return 0;
+    };
+
+    return 1;    
 }
 
 
@@ -96,8 +102,6 @@ int compile(regex** r, char* input) {
 
 
 int parse(regex** r, char* input) {
-    free_regex(r);
-
     int level = 0;
 
     // keep track how many regex objects there currently are on each level
@@ -121,10 +125,6 @@ int parse(regex** r, char* input) {
     }
 
     while (!in(input[pos], "\n\0", 2)) {
-        for (int i = 0; i < level; i++) {
-            printf("  ");
-        }
-
         // store the partial regex built in this iteration
         // and mark if something was added
         // regex_built will stay 0 if e.g. a new block is opened
@@ -148,7 +148,6 @@ int parse(regex** r, char* input) {
                     printf("ERROR: invalid escape sequence \\%c\n", input[pos+1]);
                     return 0;
                 } else {
-                    printf("symbol %c ", input[++pos]);
                     r_temp = new_single_regex(input[pos]);
                     regex_built = 1;
                 }
@@ -176,10 +175,7 @@ int parse(regex** r, char* input) {
                 elements[level] = 0;
 
                 level--;
-                printf(") ");
-            } else if (input[pos] == '.') {
-                printf("any symbol ");
-                
+            } else if (input[pos] == '.') {          
                 // in this case, only two states are needed
                 // state 0 has a transition to state 1 for every valid symbol
                 r_temp = new_single_regex(ALL_SYMBOLS[0]);
@@ -194,11 +190,8 @@ int parse(regex** r, char* input) {
             } else if (input[pos] == '[') {
                 int inverted = 0;
                 if (input[pos+1] == '^') {
-                    printf("inverted class ");
                     inverted = 1;
                     pos++;
-                } else {
-                   printf("class ");
                 }
 
                 if (input[pos++] == ']') {
@@ -238,8 +231,6 @@ int parse(regex** r, char* input) {
                             printf("\nERROR: invalid range\n");
                             return 0;
                         } else {
-                            printf("<symbols %c to %c> ", input[pos], input[pos+2]);
-
                             for (char i = input[pos]; i <= input[pos+2]; i++) {
                                 // TODO: ugly
                                 if (symbols == NULL) {
@@ -258,7 +249,6 @@ int parse(regex** r, char* input) {
                     } 
                     // single symbol
                     else {
-                        printf("<symbol %c> ", input[pos]);
                         if (symbols == NULL) {
                             nr_symbols++;
                             symbols = realloc(symbols, nr_symbols * sizeof(char));
@@ -288,16 +278,14 @@ int parse(regex** r, char* input) {
 
             // single symbol
             else {
-                printf("symbol %c ", input[pos]);
                 r_temp = new_single_regex(input[pos]);
                 regex_built = 1;
             }
 
             // a?
             if (input[pos+1] == '?') {
-                printf("(optional)\n");
                 pos += 2;
-                regex_maybe(r_temp);
+                regex_optional(r_temp);
             } 
 
             // a{2,5}
@@ -347,7 +335,7 @@ int parse(regex** r, char* input) {
                 // fold the additional regexes into a single one
                 for (int i = max-2; i >= 0; i--) {
                     if (i >= min-1) {
-                        regex_maybe(r2[i]);
+                        regex_optional(r2[i]);
                     }
                     if (i > 0) {
                         regex_concat(r2[i-1], r2[i]);
@@ -359,10 +347,8 @@ int parse(regex** r, char* input) {
 
                 // in case {0,x} the whole construct may be repeated 0 times
                 if (min == 0) {
-                    regex_maybe(r_temp);
+                    regex_optional(r_temp);
                 }
-
-                printf("(repeated %i to %i times)\n", min, max);
             }
             
             // TODO: remove redundant parts (next 4 for loops can be merged into one)
@@ -373,7 +359,6 @@ int parse(regex** r, char* input) {
 
                 // a*?
                 if (input[pos+2] == '?') {
-                    printf("(lazy * iteration)\n");
                     for (int i = 0; i < r_temp->size; i++) {
                         if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = lazy;
@@ -384,7 +369,6 @@ int parse(regex** r, char* input) {
                 
                 // a*
                 else {
-                    printf("(greedy * iteration)\n");
                     for (int i = 0; i < r_temp->size;  i++) {
                         if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = greedy;
@@ -402,7 +386,6 @@ int parse(regex** r, char* input) {
 
                 // a+?
                 if (input[pos+2] == '?') {
-                    printf("(lazy + iteration)\n");
                     for (int i = 0; i < r_temp->size; i++) {
                         if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = lazy;
@@ -413,7 +396,6 @@ int parse(regex** r, char* input) {
                 
                 // a+
                 else {
-                    printf("(greedy + iteration)\n");
                     for (int i = 0; i < r_temp->size; i++) {
                         if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
                             r_temp->states[i]->behavior = greedy;
@@ -425,7 +407,6 @@ int parse(regex** r, char* input) {
             
             // a
             else {
-                printf("\n");
                 pos++;
             }
         }
@@ -437,9 +418,8 @@ int parse(regex** r, char* input) {
                 printf("ERROR: ^ can only be used as the first symbol of a regex string\n");
                 return 0;
             } else {
-                printf("start of line symbol\n");
                 pos++;
-                // TODO: mark this in the state somehow?
+                rs[0][0]->line_start = 1;
                 continue;
             }
         }
@@ -451,10 +431,8 @@ int parse(regex** r, char* input) {
                 printf("ERROR: $ can only be used as the last symbol of a regex string\n");
                 return 0;
             } else {
-                printf("end of line symbol\n");
                 if (level == 0) {
-                    printf("parse successful\n");
-                    // TODO: mark this in the state somehow?
+                    rs[0][0]->line_end = 1;
                     return 1;
                 } else {
                     printf("ERROR: %d () blocks not closed\n", level);
@@ -466,7 +444,6 @@ int parse(regex** r, char* input) {
         // block start
         else if (input[pos] == '(') {
             pos++;
-            printf("(\n");
             level++;
             elements[level] = 0;
         }
@@ -477,7 +454,6 @@ int parse(regex** r, char* input) {
                 printf("ERROR: invalid alternative\n");
                 return 0;
             } else {
-                printf(" or\n");
                 alternative[level] = 1;
                 pos++;
             }
@@ -511,8 +487,6 @@ int parse(regex** r, char* input) {
             return 0;
         }
     } else {
-        printf("parse successful\n");
-
         // concatenate all level 0 regex elements
         for (int i = elements[0]-1; i > 0; i--) {
             regex_concat(rs[0][i-1], rs[0][i]);
@@ -532,7 +506,6 @@ int parse(regex** r, char* input) {
 
 
 int make_epsilon_free(regex* r) {
-
     // calculate epsilon closure for every state
     // visited is initialized with 0
     // and marked with 1 when visited
@@ -591,7 +564,6 @@ int make_epsilon_free(regex* r) {
     }
     free(stack);
 
-
     // first remove all epsilon transitions to save time
     for (int i = 0; i < r->size; i++) {
         for (int j = r->states[i]->size - 1; j >= 0; j--) {
@@ -617,7 +589,7 @@ int make_epsilon_free(regex* r) {
             }
         }
     }
-
+    
     // iterate over all states and write the new transitions
     for (int i = 0; i < r->size; i++) {
 
@@ -678,7 +650,7 @@ int make_epsilon_free(regex* r) {
     }
     free(ec);
 
-    return 0;
+    return 1;
 }
 
 
@@ -759,7 +731,6 @@ int make_deterministic(regex* r) {
                             
                             // check if it is an end state -> must be marked in the new state
                             if (r->states[r->states[state_nr]->transitions[k]->next_state]->type == end || r->states[r->states[state_nr]->transitions[k]->next_state]->type == start_end) {
-                                printf("got here\n");
                                 end_state_marker = 1;
                             }
                         }
@@ -839,15 +810,9 @@ int make_deterministic(regex* r) {
     free(stack);
     free(symbols);
 
-    return 0;
+    return 1;
 }
 
-
-
-
-int minify(regex** r) {
-    return 0;
-}
 
 
 void free_regex(regex** r) {
@@ -866,6 +831,7 @@ void free_regex(regex** r) {
 }
 
 
+
 void free_state(state* s) {
     for (int i = 0; i < s->size; i++) {
         free(s->transitions[i]);
@@ -874,24 +840,30 @@ void free_state(state* s) {
 }
 
 
+
 regex* new_regex() {
     regex* r = malloc(sizeof(regex));
+    r->line_start = 0;
+    r->line_end = 0;
     r->size = 0;
+    r->states = NULL;
     return r;
 }
+
 
 
 regex* new_single_regex(char symbol) {
     regex* r = malloc(sizeof(regex));
+    r->line_start = 0;
+    r->line_end = 0;
     r->size = 2;
-    r->states = malloc(r->size * sizeof(state*));
-
+    r->states = malloc(2 * sizeof(state*));
     r->states[0] = new_state(1, none, start);
     r->states[0]->transitions[0] = new_transition(0, symbol, 1);
-    
     r->states[1] = new_state(0, none, end);
     return r;
 }
+
 
 
 state* new_state(int size, int behavior, int type) {
@@ -904,6 +876,7 @@ state* new_state(int size, int behavior, int type) {
 }
 
 
+
 transition* new_transition(int epsilon, char symbol, int next_state) {
     transition* t = malloc(sizeof(transition));
     t->epsilon = epsilon;
@@ -911,6 +884,7 @@ transition* new_transition(int epsilon, char symbol, int next_state) {
     t->next_state = next_state;
     return t;
 }
+
 
 
 void regex_concat(regex* a, regex* b) {
@@ -989,8 +963,8 @@ void regex_alternative(regex* a, regex* b) {
 
 
 void regex_repeat(regex* a) {
-    // mark the start state as an end state additionally
-    regex_maybe(a);
+    // create one additional end state and connect the start state to it
+    regex_optional(a);
 
     // connect all end states to the start state
     for (int i = 0; i < a->size; i++) {
@@ -1003,8 +977,13 @@ void regex_repeat(regex* a) {
 }
 
 
-void regex_maybe(regex* a) {
-    // mark the start state as additional end state
+void regex_optional(regex* a) {
+    // create one additional end state and connect the start state to it
+    a->states = realloc(a->states, ++(a->size) * sizeof(state*));
+    a->states[a->size-1] = new_state(0, none, end);
+    a->states[0]->transitions = realloc(a->states[0]->transitions, ++(a->states[0]->size) * sizeof(transition*));
+    a->states[0]->transitions[a->states[0]->size-1] = new_transition(1, ' ', a->size-1);
+    // make the start state an end state as well
     a->states[0]->type = start_end;
 }
 
@@ -1014,10 +993,9 @@ void print_regex(regex* r) {
     for (int i = 0; i < r->size; i++) {
         state* s = r->states[i];
         printf(
-            " - %i: %s; %i; %s\n",
+            " - %i: %s; %s\n",
             i,
-            (s->type == start) ? "start" : ((s->type == end|| s->type == start_end) ? (s->type == end ? "end" : "start_end") : "middle"),
-            s->size,
+            (s->type == start) ? "start" : ((s->type == end || s->type == start_end) ? (s->type == end ? "end" : "start_end") : "middle"),
             (s->behavior == lazy) ? "lazy" : ((s->behavior == greedy) ? "greedy" : "none"));
         for (int j = 0; j < s->size; j++) {
             printf(
@@ -1059,37 +1037,111 @@ regex* copy_regex(regex* r) {
 
 
 
-
-//========== MATCHING ==========
-
-
-// helper functions
-int match_one(regex* r, char* c, int* length);
+//========== HELPER FUNCTION IMPLEMENTATIONS ==========
 
 
 
-int match(regex* r, char* c, int* locations, int* lengths) {
-    int pos = 0;
-    int matches = 0;
-
-    while (c[pos] != '\0' && c[pos != '\0']) {
-        int match_length = 0;
-        int success = match_one(r, &c[pos], &match_length);
-        if (success) {
-            matches++;
-
-            // TODO: save pos and length for returning
-
-            pos += match_length;
-        } else {
-            pos++;
+static int in(const char a, const char* b, int length) {
+    if (b == NULL || length < 1) {
+        return 0;
+    }
+    for (int i = 0; i < length; i++) {
+        if (b[i] == a) {
+            return 1;
         }
     }
-
-    return matches;
+    return 0;
 }
 
 
-int match_one(regex* r, char* c, int* length) {
+
+int sort_int_array(int* array, int size) {
+    int changes = 1;
+    while (changes > 0) {
+        changes = 0;
+        for (int i = 0; i < size-1; i++) {
+            if (array[i] > array[i+1]) {
+                int temp = array[i];
+                array[i] = array[i+1];
+                array[i+1] = temp;
+                changes++;
+            }
+        }
+    }
     return 1;
+}
+
+
+
+//========== MATCHING ==========
+
+// returns either the next state or -1 on error
+int next_state(regex* r, int current_state, char symbol) {  
+    // iterate over all possible transitions
+    for (int i = 0; i < r->states[current_state]->size; i++) {
+        if (r->states[current_state]->transitions[i]->symbol == symbol) {
+            return r->states[current_state]->transitions[i]->next_state;
+        }
+    }
+    return -1;
+}
+
+
+
+int regex_match_first(regex* r, char* input, int* location, int* length) {
+    int pos = 0;
+    int state = 0;
+    int match_start = -1;
+
+    // TODO: check if the input must start at the beginning of the line
+    
+    // try to match until there is no more input
+    while (input[pos] != '\0') {
+        int temp_state = next_state(r, state, input[pos]);
+
+        // no possible transition -> try again
+        if (temp_state < 0) {
+            match_start = -1;
+            state = 0;
+        }
+        
+        // accepting state
+        else if (r->states[temp_state]->type == end || r->states[temp_state]->type == start_end) {
+            printf("got here\n");
+            if (match_start < 0) {
+                match_start = pos;
+            }
+            *location = match_start;
+            *length = pos + 1 - match_start;
+            return 1;
+        }
+
+        // made transition to a normal state
+        else {
+            if (match_start < 0) {
+                match_start = pos;
+            }
+            state = temp_state;
+        }
+
+        pos++;
+    }
+    return 0;
+}
+
+
+
+int regex_match(regex* r, char* input, int** locations, int** lengths) {
+    int pos = 0;
+    int matches = 0;
+
+    // reset locations and lengths in order for realloc() to work
+    locations = NULL;
+    lengths = NULL;
+
+    while (input) {
+
+    }
+
+    return matches;
 }

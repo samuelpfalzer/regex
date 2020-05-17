@@ -20,11 +20,18 @@ supported regular expression subset:
 
 */
 
+
+//========== TYPE DEFINITIONS ==========
+
+
+
 typedef struct {
     int epsilon;
     char symbol;
     int next_state;
 } transition;
+
+
 
 typedef struct {
     int size;
@@ -33,32 +40,33 @@ typedef struct {
     transition** transitions;
 } state;
 
+
+
 typedef struct {
+    int line_start;
+    int line_end;
     int size;
     state** states;
 } regex;
 
 
-regex* new_regex();
-void free_regex(regex** r);
 
+//========== FUNCTION DECLARATIONS ==========
 
-// compile a string to a regex
+// compiles the input string to a regex structure
 // returns 1 on success, 0 else
-// places the compiled regex at location r
-int compile(regex **r, char *input);
+int regex_compile(regex** r, char* input);
 
-// matches the given string to the regex
-// returns number of matches found
-// writes the matched locations and match lengths
-int match(regex *r, char *input, int *locations, int *lengths);
+// matches the previously compiled regex r against the input string
+// returns the number of matches
+// match positions are reported via the arrays locations and lengths
+int regex_match(regex* r, char* input, int** locations, int** lengths);
 
+// matches the previously compiled regex r against the input string
+int regex_match_first(regex* r, char* input, int* location, int* length);
+
+// compiles and matches the regular expression r similar to the regex_match function
+int regex_compile_match(char* r, char* c, int* locations, int* lengths);
+
+// prints a compiled regex to the terminal
 void print_regex(regex* r);
-
-
-
-regex* new_single_regex(char symbol);
-void regex_concat(regex* a, regex* b);
-void regex_repeat(regex* a);
-void regex_maybe(regex* a);
-void regex_alternative(regex* a, regex* b);
