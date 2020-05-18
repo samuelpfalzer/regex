@@ -17,8 +17,8 @@ typedef struct {
 
 
 stack* new_stack(int type_size, void (*free_func)(void*));
-int stack_push(stack* s, void* element_ptr);
-int stack_pop(stack* s, void* element_ptr);
+int stack_push(stack* s, void* element);
+int stack_pop(stack* s, void* element);
 int delete_stack(stack** s);
 
 

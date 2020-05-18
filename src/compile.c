@@ -29,6 +29,7 @@ static int make_deterministic(regex* r);
 
 //========== COMPILE FUNCTION ==========
 
+// TODO: free r if compilation fails!
 
 int regex_compile(regex** r, char* input) {
     free_regex(r);

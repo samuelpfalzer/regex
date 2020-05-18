@@ -13,18 +13,21 @@ stack* new_stack(int type_size, void (*free_func)(void*)) {
 }
 
 
-int stack_push(stack* s, void* element_ptr) {
+int stack_push(stack* s, void* element) {
     s->content = realloc(s->content, ++(s->size) * s->type_size);
-    memcpy((void*)(s->content + (s->size-1) * s->type_size), element_ptr, s->type_size);
+    memcpy((void*)(s->content + (s->size-1) * s->type_size), element, s->type_size);
     return 1;
 }
 
 
-int stack_pop(stack* s, void* element_ptr) {
+int stack_pop(stack* s, void* element) {
     if (!s->size) {
         return 0;
     }
-    memcpy(element_ptr, (void*)(s->content + (s->size-1) * s->type_size), s->type_size);
+    memcpy(element, (void*)(s->content + (s->size-1) * s->type_size), s->type_size);
+    if (s->free_func != NULL) {
+        s->free_func((void*)s->content + (s->size-1) * s->type_size);
+    }
     s->content = realloc(s->content, --(s->size) * s->type_size);
     return 1;
 }
