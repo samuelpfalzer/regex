@@ -75,4 +75,43 @@ int regex_compile_match(char* r, char* c, int* locations, int* lengths);
 void print_regex(regex* r);
 
 
+
+// ========== UTILITY FUNCTIONS ============
+
+
+// free a regex and all its elements recursively
+void free_regex(regex** r);
+
+// free a state and all its elements recursively
+void free_state(state* s);
+
+// returns a new malloced regex instance with all elements set to 0
+regex* new_regex();
+
+// returns a new malloced regex instance with a single transition
+regex* new_single_regex(char symbol);
+
+// returns a malloced copy of the regex r
+regex* copy_regex(regex* r);
+
+// returns a malloced state instance with all elements set to 0
+state* new_state(int size, int behavior, int type);
+
+// returns a malloced transition
+transition* new_transition(int epsilon, char symbol, int next_state);
+
+// concatenate b at the end of a
+void regex_concat(regex* a, regex* b);
+
+// expand a to implement a choice between itself and b
+void regex_alternative(regex* a, regex* b);
+
+// repeat the regex a 0 or more times
+void regex_repeat(regex* a);
+
+// repeat the regex a 0 or 1 times
+void regex_optional(regex* a);
+
+
+
 #endif
