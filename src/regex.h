@@ -1,15 +1,16 @@
 #ifndef REGEX_H
 #define REGEX_H
 
-/*
 
+/*
 supported regular expression subset:
 - a -> match letter a
-- a* -> match zero or more occurrences of a (gready)
+- a* -> match zero or more occurrences of a (greedy)
 - a*? -> match zero or more occurrences of a (lazy)
-- a+ -> match at least one occurrence of a
+- a+ -> match at least one occurrence of a (greedy)
 - a+? -> match at least one occurrence of a (lazy)
-- a? -> match zero or one occurrences of a
+- a? -> match zero or one occurrences of a (greedy)
+- a?? -> match zero or one occurrences of a (lazy)
 - a{2,5} -> match at least 2, but at most 5 occurrences of a
 - a|b -> match a or b
 - [abc03] -> match any character given in the class
@@ -20,40 +21,43 @@ supported regular expression subset:
 - $ -> match the end of a line
 - \( -> match a literal ( (applies for all special characters)
 - \\ -> match a literal \
-
 */
 
 
 //========== TYPE DEFINITIONS ==========
 
 
+typedef enum { ts_dead, ts_active, ts_epsilon } transition_status;
+
 typedef struct {
-    int epsilon;
+    transition_status status;
     char symbol;
     int next_state;
 } transition;
 
 
+typedef enum { sb_none, sb_greedy, sb_lazy } state_behaviour;
+
+typedef enum { st_start, st_middle, st_end, st_start_end } state_type;
 
 typedef struct {
-    int size;
-    enum {lazy, greedy, none} behavior;
-    enum {start, middle, end, start_end} type;
+    int nr_transitions;
+    state_behaviour behaviour;
+    state_type type;
     transition** transitions;
 } state;
-
 
 
 typedef struct {
     int line_start;
     int line_end;
-    int size;
+    int nr_states;
     state** states;
 } regex;
 
 
+//========== LIBRARY FUNCTIONS ==========
 
-//========== FUNCTION DECLARATIONS ==========
 
 // compiles the input string to a regex structure
 // returns 1 on success, 0 else
@@ -67,12 +71,12 @@ int regex_match(regex* r, char* input, int** locations, int** lengths);
 // matches the previously compiled regex r against the input string
 int regex_match_first(regex* r, char* input, int* location, int* length);
 
-// compiles and matches the regular expression r similar to the regex_match function
+// compiles and matches the regular expression r similar to the regex_match
+// function
 int regex_compile_match(char* r, char* c, int* locations, int* lengths);
 
 // prints a compiled regex to the terminal
 void print_regex(regex* r);
-
 
 
 // ========== UTILITY FUNCTIONS ============
@@ -97,10 +101,11 @@ regex* new_empty_regex();
 regex* copy_regex(regex* r);
 
 // returns a malloced state instance with all elements set to 0
-state* new_state(int size, int behavior, int type);
+state* new_state(int nr_transitions, state_behaviour behaviour, int type);
 
 // returns a malloced transition
-transition* new_transition(int epsilon, char symbol, int next_state);
+transition*
+new_transition(transition_status status, char symbol, int next_state);
 
 // concatenate b at the end of a
 void regex_concat(regex* a, regex* b);
@@ -119,7 +124,6 @@ void regex_make_lazy(regex* a);
 
 // mark the regex as greedy (accepting as many chars as possible)
 void regex_make_greedy(regex* a);
-
 
 
 #endif

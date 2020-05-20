@@ -1,14 +1,14 @@
 #include "regex.h"
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 
 //========== MATCHING ==========
 
 // returns either the next state or -1 on error
-int next_state(regex* r, int current_state, char symbol) {  
+int next_state(regex* r, int current_state, char symbol) {
     // iterate over all possible transitions
-    for (int i = 0; i < r->states[current_state]->size; i++) {
+    for (int i = 0; i < r->states[current_state]->nr_transitions; i++) {
         if (r->states[current_state]->transitions[i]->symbol == symbol) {
             return r->states[current_state]->transitions[i]->next_state;
         }
@@ -17,14 +17,13 @@ int next_state(regex* r, int current_state, char symbol) {
 }
 
 
-
 int regex_match_first(regex* r, char* input, int* location, int* length) {
     int pos = 0;
     int state = 0;
     int match_start = -1;
 
     // TODO: check if the input must start at the beginning of the line
-    
+
     // try to match until there is no more input
     while (input[pos] != '\0') {
         int temp_state = next_state(r, state, input[pos]);
@@ -34,9 +33,10 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
             match_start = -1;
             state = 0;
         }
-        
+
         // accepting state
-        else if (r->states[temp_state]->type == end || r->states[temp_state]->type == start_end) {
+        else if (r->states[temp_state]->type == st_end ||
+                 r->states[temp_state]->type == st_start_end) {
             if (match_start < 0) {
                 match_start = pos;
             }
@@ -59,7 +59,6 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
 }
 
 
-
 int regex_match(regex* r, char* input, int** locations, int** lengths) {
     int pos = 0;
     int matches = 0;
@@ -69,7 +68,6 @@ int regex_match(regex* r, char* input, int** locations, int** lengths) {
     lengths = NULL;
 
     while (input) {
-
     }
 
     return matches;

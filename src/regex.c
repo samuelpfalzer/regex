@@ -1,43 +1,43 @@
 #include "regex.h"
+#include "helper_functions.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "helper_functions.h"
 
 
-//========== FUNCTIONS ==========
+//========== REGEX FUNCTIONS ==========
 
 
 regex* new_regex() {
     regex* r = malloc(sizeof(regex));
     r->line_start = 0;
     r->line_end = 0;
-    r->size = 0;
+    r->nr_states = 0;
     r->states = NULL;
     return r;
 }
-
 
 
 regex* new_single_regex(char symbol) {
     regex* r = malloc(sizeof(regex));
     r->line_start = 0;
     r->line_end = 0;
-    r->size = 2;
+    r->nr_states = 2;
     r->states = malloc(2 * sizeof(state*));
-    r->states[0] = new_state(1, none, start);
-    r->states[0]->transitions[0] = new_transition(0, symbol, 1);
-    r->states[1] = new_state(0, none, end);
+    r->states[0] = new_state(1, sb_none, st_start);
+    r->states[0]->transitions[0] = new_transition(ts_active, symbol, 1);
+    r->states[1] = new_state(0, sb_none, st_end);
     return r;
 }
+
 
 regex* new_empty_regex() {
     regex* r = malloc(sizeof(regex));
     r->line_start = 0;
     r->line_end = 0;
-    r->size = 1;
+    r->nr_states = 1;
     r->states = malloc(sizeof(state*));
-    r->states[0] = new_state(0, none, start_end);
+    r->states[0] = new_state(0, sb_none, st_start_end);
     return r;
 }
 
@@ -48,162 +48,204 @@ void free_regex(regex** r) {
         return;
     }
 
-    for (int i = 0; i < (*r)->size; i++) {
+    for (int i = 0; i < (*r)->nr_states; i++) {
         free_state((*r)->states[i]);
         free((*r)->states[i]);
     }
     free((*r)->states);
-    
+
     free(*r);
     *r = NULL;
 }
 
 
-state* new_state(int size, int behavior, int type) {
+//========== STATE FUNCTIONS ==========
+
+
+state* new_state(int nr_transitions, state_behaviour behaviour, int type) {
     state* s = malloc(sizeof(state));
-    s->size = size;
-    s->behavior = behavior;
+    s->nr_transitions = nr_transitions;
+    s->behaviour = behaviour;
     s->type = type;
-    s->transitions = malloc(s->size * sizeof(transition*));
+    s->transitions = malloc(s->nr_transitions * sizeof(transition*));
     return s;
 }
 
 
 void free_state(state* s) {
-    for (int i = 0; i < s->size; i++) {
+    for (int i = 0; i < s->nr_transitions; i++) {
         free(s->transitions[i]);
     }
     free(s->transitions);
 }
 
 
-transition* new_transition(int epsilon, char symbol, int next_state) {
+//========== TRANSITION FUNCTIONS ==========
+
+
+transition*
+new_transition(transition_status status, char symbol, int next_state) {
     transition* t = malloc(sizeof(transition));
-    t->epsilon = epsilon;
+    t->status = status;
     t->symbol = symbol;
     t->next_state = next_state;
     return t;
 }
 
 
+//========== REGEX PROCESSING FUNCTIONS ==========
+
 
 void regex_concat(regex* a, regex* b) {
-    // shift all targets of b to avoid collisions
-    for (int i = 0; i < b->size; i++) {
-        for (int j = 0; j < b->states[i]->size; j++) {
-            b->states[i]->transitions[j]->next_state += a->size;
+    // shift all targets of b to create a combined address space
+    for (int i = 0; i < b->nr_states; i++) {
+        for (int j = 0; j < b->states[i]->nr_transitions; j++) {
+            b->states[i]->transitions[j]->next_state += a->nr_states;
         }
     }
 
     // b's first state is no longer a start state
-    b->states[0]->type = middle;
+    b->states[0]->type = (b->states[0]->type == st_start) ? st_middle : st_end;
 
     // resize a's state array to fit in b completely
-    a->states = realloc(a->states, (a->size + b->size) * sizeof(state*));
-
+    a->states =
+        realloc(a->states, (a->nr_states + b->nr_states) * sizeof(state*));
 
     // copy all states from b to a
-    for (int i = 0; i < b->size; i++) {
-        a->states[i + a->size] = b->states[i];
+    for (int i = 0; i < b->nr_states; i++) {
+        a->states[i + a->nr_states] = b->states[i];
     }
 
     // connect all end states of a to b's start state and mark them
     // as normal states
-    for (int i = 0; i < a->size; i++) {
+    for (int i = 0; i < a->nr_states; i++) {
         state* s = a->states[i];
-        if (s->type == end || s->type == start_end) {
-            s->size++;
-            s->transitions = realloc(s->transitions, s->size * sizeof(transition*));
-            // connect to a->size because the start state always is the first
-            s->transitions[s->size-1] = new_transition(1, ' ', a->size);
-            s->type = middle;
+        if (s->type == st_end || s->type == st_start_end) {
+            s->transitions = realloc(s->transitions, ++(s->nr_transitions) *
+                                                         sizeof(transition*));
+            // connect to a->size because the start state always is
+            // the first
+            s->transitions[s->nr_transitions - 1] =
+                new_transition(ts_epsilon, ' ', a->nr_states);
+            s->type = (s->type == st_end) ? st_middle : st_start;
         }
     }
 
-    a->size += b->size;
-    b->size = 0;
+    a->nr_states += b->nr_states;
+    b->nr_states = 0;
     free_regex(&b);
 }
 
 
 void regex_alternative(regex* a, regex* b) {
     // expand a to fit in b and the new start node
-    a->states = realloc(a->states, ((++(a->size))+b->size) * sizeof(state*));
+    a->states = realloc(a->states,
+                        ((++(a->nr_states)) + b->nr_states) * sizeof(state*));
 
-    // shift all of a's states one to the right and correct their next pointers
-    for (int i = a->size - 1; i > 0; i--) {
-        a->states[i] = a->states[i-1];
-        for (int j = 0; j < a->states[i]->size; j++) {
+    // shift all of a's states one to the right and correct their next
+    // pointers
+    for (int i = a->nr_states - 1; i > 0; i--) {
+        a->states[i] = a->states[i - 1];
+        for (int j = 0; j < a->states[i]->nr_transitions; j++) {
             a->states[i]->transitions[j]->next_state++;
         }
     }
 
-    // create the new start state, link it to the old start state and mark that as deprecated
-    a->states[0] = new_state(2, none, start);
-    a->states[0]->transitions[0] = new_transition(1, ' ', 1);
-    a->states[1]->type = middle;
-
     // correct b's next pointers and copy them to a
-    for (int i = 0; i < b->size; i++) {
-        for (int j = 0; j < b->states[i]->size; j++) {
-            b->states[i]->transitions[j]->next_state += a->size;
+    for (int i = 0; i < b->nr_states; i++) {
+        for (int j = 0; j < b->states[i]->nr_transitions; j++) {
+            b->states[i]->transitions[j]->next_state += a->nr_states;
         }
-        a->states[a->size+i] = b->states[i];
+        a->states[a->nr_states + i] = b->states[i];
     }
 
+    // create the new start state, link it to the old start state and mark
+    // that as deprecated
+    a->states[0] = new_state(2, sb_none, st_start);
+    a->states[0]->transitions[0] = new_transition(ts_epsilon, 0, 1);
+    a->states[1]->type = st_middle;
+
     // link the new start state to b's old start state
-    a->states[0]->transitions[1] = new_transition(1, ' ', a->size);
-    a->states[a->size]->type = middle;
+    a->states[0]->transitions[1] = new_transition(ts_epsilon, 0, a->nr_states);
+    a->states[a->nr_states]->type = st_middle;
 
     // correct a's size and free b
-    a->size += b->size;
-    b->size = 0;
+    a->nr_states += b->nr_states;
+    b->nr_states = 0;
     free_regex(&b);
 }
 
 
 void regex_repeat(regex* a) {
-    // create one additional end state and connect the start state to it
+    // make the start state a start_end state
     regex_optional(a);
 
     // connect all end states to the start state
-    for (int i = 0; i < a->size; i++) {
-        if (a->states[i]->type == end || a->states[i]->type == start_end) {
-            a->states[i]->transitions = realloc(a->states[i]->transitions, ++(a->states[i]->size) * sizeof(transition*));
-            a->states[i]->transitions[a->states[i]->size-1] = new_transition(1, ' ', 0);
+    for (int i = 0; i < a->nr_states; i++) {
+        if (a->states[i]->type == st_end) {
+            a->states[i]->transitions =
+                realloc(a->states[i]->transitions,
+                        ++(a->states[i]->nr_transitions) * sizeof(transition*));
+            a->states[i]->transitions[a->states[i]->nr_transitions - 1] =
+                new_transition(ts_epsilon, 0, 0);
         }
     }
-
 }
 
 
 void regex_optional(regex* a) {
-    // create one additional end state and connect the start state to it
-    a->states = realloc(a->states, ++(a->size) * sizeof(state*));
-    a->states[a->size-1] = new_state(0, none, end);
-    a->states[0]->transitions = realloc(a->states[0]->transitions, ++(a->states[0]->size) * sizeof(transition*));
-    a->states[0]->transitions[a->states[0]->size-1] = new_transition(1, ' ', a->size-1);
     // make the start state an end state as well
-    a->states[0]->type = start_end;
+    a->states[0]->type = st_start_end;
 }
 
 
 void print_regex(regex* r) {
-    printf("regex; size: %i\n", r->size);
-    for (int i = 0; i < r->size; i++) {
+    printf("REGEX - nr_states: %d\n", r->nr_states);
+    for (int i = 0; i < r->nr_states; i++) {
         state* s = r->states[i];
-        printf(
-            " - %i: %s; %s\n",
-            i,
-            (s->type == start) ? "start" : ((s->type == end || s->type == start_end) ? (s->type == end ? "end" : "start_end") : "middle"),
-            (s->behavior == lazy) ? "lazy" : ((s->behavior == greedy) ? "greedy" : "none"));
-        for (int j = 0; j < s->size; j++) {
-            printf(
-                "   - %c -> %i\n",
-                (s->transitions[j]->epsilon == 1) ? 'E' : (s->transitions[j]->symbol),
-                s->transitions[j]->next_state);
+        printf(" - %d: type ", i);
+
+        switch (s->type) {
+        case st_start:
+            printf(" start");
+            break;
+        case st_start_end:
+            printf(" start+end");
+            break;
+        case st_end:
+            printf(" end");
+            break;
+        default:
+            printf(" middle");
+            break;
         }
 
+        switch (s->behaviour) {
+        case sb_greedy:
+            printf(", greedy\n");
+            break;
+        case sb_lazy:
+            printf(", lazy\n");
+            break;
+        default:
+            printf("\n");
+            break;
+        }
+
+        for (int j = 0; j < s->nr_transitions; j++) {
+            switch (s->transitions[j]->status) {
+            case ts_epsilon:
+                printf("   - epsilon -> %d\n", s->transitions[j]->next_state);
+                break;
+            case ts_active:
+                printf("   - %c -> %d\n", s->transitions[j]->symbol,
+                       s->transitions[j]->next_state);
+                break;
+            default:
+                printf("   - dead\n");
+                break;
+            }
+        }
     }
 }
 
@@ -212,23 +254,27 @@ regex* copy_regex(regex* r) {
     regex* r2 = malloc(sizeof(regex));
 
     // match the size of r2 to that of r
-    r2->size = r->size;
-    r2->states = malloc(r2->size * sizeof(state*));
+    r2->nr_states = r->nr_states;
+    r2->states = malloc(r2->nr_states * sizeof(state*));
 
     // copy each state
-    for (int i = 0; i < r2->size; i++) {
+    for (int i = 0; i < r2->nr_states; i++) {
         r2->states[i] = malloc(sizeof(state));
-        r2->states[i]->size = r->states[i]->size;
-        r2->states[i]->behavior = r->states[i]->behavior;
+        r2->states[i]->nr_transitions = r->states[i]->nr_transitions;
+        r2->states[i]->behaviour = r->states[i]->behaviour;
         r2->states[i]->type = r->states[i]->type;
-        r2->states[i]->transitions = malloc(r2->states[i]->size * sizeof(transition*));
+        r2->states[i]->transitions =
+            malloc(r2->states[i]->nr_transitions * sizeof(transition*));
 
         // copy each transition
-        for (int j = 0; j < r2->states[i]->size; j++) {
+        for (int j = 0; j < r2->states[i]->nr_transitions; j++) {
             r2->states[i]->transitions[j] = malloc(sizeof(transition));
-            r2->states[i]->transitions[j]->epsilon = r->states[i]->transitions[j]->epsilon;
-            r2->states[i]->transitions[j]->next_state = r->states[i]->transitions[j]->next_state;
-            r2->states[i]->transitions[j]->symbol = r->states[i]->transitions[j]->symbol;
+            r2->states[i]->transitions[j]->status =
+                r->states[i]->transitions[j]->status;
+            r2->states[i]->transitions[j]->next_state =
+                r->states[i]->transitions[j]->next_state;
+            r2->states[i]->transitions[j]->symbol =
+                r->states[i]->transitions[j]->symbol;
         }
     }
 
@@ -237,18 +283,20 @@ regex* copy_regex(regex* r) {
 
 
 void regex_make_lazy(regex* a) {
-    for (int i = 0; i < a->size; i++) {
-        if (a->states[i]->type == end || a->states[i]->type == start_end) {
-            a->states[i]->behavior = lazy;
+    for (int i = 0; i < a->nr_states; i++) {
+        if (a->states[i]->type == st_end ||
+            a->states[i]->type == st_start_end) {
+            a->states[i]->behaviour = sb_lazy;
         }
     }
 }
 
 
 void regex_make_greedy(regex* a) {
-    for (int i = 0; i < a->size; i++) {
-        if (a->states[i]->type == end || a->states[i]->type == start_end) {
-            a->states[i]->behavior = greedy;
+    for (int i = 0; i < a->nr_states; i++) {
+        if (a->states[i]->type == st_end ||
+            a->states[i]->type == st_start_end) {
+            a->states[i]->behaviour = sb_greedy;
         }
     }
 }

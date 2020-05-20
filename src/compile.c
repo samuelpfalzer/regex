@@ -1,17 +1,30 @@
+// clang-format off
+#define DEBUG_MODE 1
+#if DEBUG_MODE > 0
+#define DEBUG(...) fprintf(stdout, ...);
+#else
+#define DEBUG(...) while(0);
+#endif
+#define ERROR(...) fprintf(stderr, ...);
+// clang-format on
+
+
+#include "helper_functions.h"
 #include "regex.h"
 #include "stack.h"
-#include "helper_functions.h"
+#include "vector.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include "vector.h"
 
 
 //========== DEFINITIONS ==========
 
-const char* REGULAR_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const char* REGULAR_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
+                              "WXYZ0123456789\"\'#/&=@!%_: \t";
 const char* ESCAPED_SYMBOLS = "-^$()[]{}\\*+?.|";
-const char* ALL_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789^$()[]{}\\*+?.|-";
+const char* ALL_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
+                          "WXYZ0123456789\"\'#/&=@!%_: \t-^$()[]{}\\*+?.|";
 
 
 //========== PRIVATE FUNCTION DECLARATIONS ==========
@@ -42,17 +55,17 @@ int regex_compile(regex** r, char* input) {
         return 0;
     };
 
+
     if (!make_deterministic(*r)) {
         printf("ERROR: make_deterministic failed\n");
         return 0;
     };
 
-    return 1;    
+    return 1;
 }
 
 
 //========== PARSE FUNCTION ==========
-
 
 
 static int parse(regex** r, char* input) {
@@ -68,7 +81,7 @@ static int parse(regex** r, char* input) {
     vector_push(elements_on_level, &level);
 
     int pos = 0;
-    
+
     vector* alternative_on_level = new_vector(sizeof(int), NULL);
     vector_push(alternative_on_level, &level);
 
@@ -81,39 +94,39 @@ static int parse(regex** r, char* input) {
 
 
     while (!in(input[pos], "\n\0", 2)) {
-        printf("DEBUG: start of parse loop: level %d, pos %d (char %c)\n", level, pos, input[pos]);
+        printf("DEBUG: start of parse loop: level %d, pos %d (char %c)\n",
+               level, pos, input[pos]);
+
         // alphanumerical character | end of block | any | escaped character
-        if (
-            (in(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS))) ||
-            (input[pos] == '[') ||
-            (input[pos] == '.') ||
-            (input[pos] == ')' && level > 0) ||
-            (input[pos] == '\\')
-        ) {
+        if ((in(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS))) ||
+            (input[pos] == '[') || (input[pos] == '.') ||
+            (input[pos] == ')' && level > 0) || (input[pos] == '\\')) {
 
-            //===== CHARACTERS =====
-
-            // escaped character
-            if (input[pos] == '\\') {
-                if (!in(input[pos+1], ESCAPED_SYMBOLS, strlen(ESCAPED_SYMBOLS))) {
-                    printf("ERROR: invalid escape sequence \\%c\n", input[pos+1]);
+            switch (input[pos]) {
+            case '\\': // escaped character
+                if (!in(input[pos + 1], ESCAPED_SYMBOLS,
+                        strlen(ESCAPED_SYMBOLS))) {
+                    printf("ERROR: invalid escape sequence \\%c\n",
+                           input[pos + 1]);
                     return 0;
                 } else {
-                    current_regex = new_single_regex(input[pos]);
+                    current_regex = new_single_regex(input[++pos]);
                     printf("DEBUG: escaped char\n");
                 }
-            } 
-            
-            // closed block
-            else if (input[pos] == ')') {
-                vector_get_at(alternative_on_level, level, &temp_int);
-                if (temp_int) {
+                break;
+
+            case ')': // closed block
+            {
+                int alternative_in_block;
+                vector_pop(alternative_on_level, &alternative_in_block);
+                if (alternative_in_block) {
                     printf("ERROR: alternative not satisfied\n");
                     return 0;
                 }
-                
-                vector_pop(elements_on_level, &temp_int);
-                if (!temp_int) {
+
+                int elements_in_block;
+                vector_pop(elements_on_level, &elements_in_block);
+                if (!elements_in_block) {
                     printf("ERROR: empty block\n");
                     return 0;
                 }
@@ -121,38 +134,39 @@ static int parse(regex** r, char* input) {
                 // concatenate all elements of the current level into one
                 // erase the current level's element table
                 // and store the concatenated element in current_regex
-                vector_pop(regex_objects, &temp_vector);
-                temp_vector->iterator = 0;
-                
-                vector_next(temp_vector, &current_regex);
+                vector* block_merge_vector = NULL;
+                vector_pop(regex_objects, &block_merge_vector);
+                vector_reset_iterator(block_merge_vector);
 
-                while (vector_next(temp_vector, &temp_regex)) {
-                    regex_concat(current_regex, temp_regex);                    
+                if (vector_next(block_merge_vector, &current_regex)) {
+                    regex* buffer_regex = NULL;
+                    while (vector_next(block_merge_vector, &buffer_regex)) {
+                        regex_concat(current_regex, buffer_regex);
+                    }
                 }
 
-                delete_vector(&temp_vector);
+                delete_vector(&block_merge_vector);
                 level--;
                 printf("DEBUG: block end\n");
-            } 
-            
-            // any character '.'
-            else if (input[pos] == '.') {          
-                // in this case, only two states are needed
-                // state 0 has a transition to state 1 for every valid symbol
+                break;
+            }
+            case '.': // any character
                 current_regex = new_single_regex(ALL_SYMBOLS[0]);
                 current_regex->states[0]->transitions =
-                    realloc(current_regex->states[0]->transitions, strlen(ALL_SYMBOLS) * sizeof(transition*));
+                    realloc(current_regex->states[0]->transitions,
+                            strlen(ALL_SYMBOLS) * sizeof(transition*));
                 for (int i = 1; i < strlen(ALL_SYMBOLS); i++) {
-                    current_regex->states[0]->transitions[i] = new_transition(0, ALL_SYMBOLS[i], 1);
+                    current_regex->states[0]->transitions[i] =
+                        new_transition(ts_active, ALL_SYMBOLS[i], 1);
                 }
-                current_regex->states[0]->size = strlen(ALL_SYMBOLS);  
-                printf("DEBUG: any char\n");             
-            } 
-            
-            // character class
-            else if (input[pos] == '[') {
-                int inverted = 0;
-                if (input[pos+1] == '^') {
+                current_regex->states[0]->nr_transitions = strlen(ALL_SYMBOLS);
+                printf("DEBUG: any char\n");
+                break;
+
+            case '[': // character class
+            {
+                int inverted = 0; // TODO: implement
+                if (input[pos + 1] == '^') {
                     inverted = 1;
                     pos++;
                 }
@@ -166,79 +180,90 @@ static int parse(regex** r, char* input) {
                 char* symbols = NULL;
 
                 while (input[pos] != ']') {
+                    printf("DEBUG: parsing class, symbol = %c\n", input[pos]);
                     if (in(input[pos], "\n\0", 2)) {
                         printf("\nERROR: class not closed");
                         return 0;
                     }
 
                     // escaped symbol
-                    if (input[pos] == '\\' && in(input[pos+1], ESCAPED_SYMBOLS, strlen(ESCAPED_SYMBOLS))) {
+                    if (input[pos] == '\\' &&
+                        in(input[pos + 1], ESCAPED_SYMBOLS,
+                           strlen(ESCAPED_SYMBOLS))) {
                         pos++;
-                        symbols = realloc(symbols, (++nr_symbols) * sizeof(char));
-                        symbols[nr_symbols-1] = input[pos++];
+                        symbols =
+                            realloc(symbols, (++nr_symbols) * sizeof(char));
+                        printf("->  added %c to class", input[pos]);
+                        symbols[nr_symbols - 1] = input[pos++];
                     }
 
                     // range
-                    else if (input[pos+1] == '-') {
-                        if (in(input[pos+2], "\n\0", 2)) {
+                    else if (input[pos + 1] == '-') {
+                        if (in(input[pos + 2], "\n\0", 2)) {
                             printf("\nERROR: class not closed");
                             return 0;
                         }
-                        if (input[pos+2] == ']') {
+                        if (input[pos + 2] == ']') {
                             printf("\nERROR: range must specify an end\n");
                             return 0;
-                        } else if (!(
-                            (input[pos] <= input[pos+2]) &&
-                            (
-                                (input[pos] >= 'a' && input[pos] <= 'z') ||
-                                (input[pos] >= 'A' && input[pos] <= 'Z') ||
-                                (input[pos] >= '0' && input[pos] <= '9')
-                            )
-                        )) {
+                        } else if (!((input[pos] <= input[pos + 2]) &&
+                                     ((input[pos] >= 'a' &&
+                                       input[pos] <= 'z') ||
+                                      (input[pos] >= 'A' &&
+                                       input[pos] <= 'Z') ||
+                                      (input[pos] >= '0' &&
+                                       input[pos] <= '9')))) {
                             printf("\nERROR: invalid range\n");
                             return 0;
                         } else {
-                            for (char i = input[pos]; i <= input[pos+2]; i++) {
+                            for (char i = input[pos]; i <= input[pos + 2];
+                                 i++) {
                                 if (!in(i, symbols, nr_symbols)) {
-                                    symbols = realloc(symbols, (++nr_symbols) * sizeof(char));
-                                    symbols[nr_symbols-1] = i;
+                                    symbols = realloc(
+                                        symbols, (++nr_symbols) * sizeof(char));
+                                    symbols[nr_symbols - 1] = i;
                                 }
                             }
                             // 3 chars: a-z
                             pos += 3;
                         }
-                    } 
+                    }
                     // single symbol
                     else {
-                        symbols = realloc(symbols, (++nr_symbols) * sizeof(char));
-                        symbols[nr_symbols-1] = input[pos++];
+                        symbols =
+                            realloc(symbols, (++nr_symbols) * sizeof(char));
+                        symbols[nr_symbols - 1] = input[pos++];
                     }
                 }
 
                 // like with '.', only 2 states are needed for this part
-                // just iterate over the valid symbol string and create a transition for each symbol
+                // just iterate over the valid symbol string and create a
+                // transition for each symbol
                 current_regex = new_single_regex(symbols[0]);
                 current_regex->states[0]->transitions =
-                    realloc(current_regex->states[0]->transitions, nr_symbols * sizeof(transition*));
+                    realloc(current_regex->states[0]->transitions,
+                            nr_symbols * sizeof(transition*));
                 for (int i = 1; i < nr_symbols; i++) {
-                    current_regex->states[0]->transitions[i] = new_transition(0, symbols[i], 1);
+                    current_regex->states[0]->transitions[i] =
+                        new_transition(ts_active, symbols[i], 1);
                 }
-                current_regex->states[0]->size = nr_symbols;
+                current_regex->states[0]->nr_transitions = nr_symbols;
 
                 free(symbols);
                 printf("DEBUG: char class\n");
-            } 
-
-            // regular character
-            else {
+                break;
+            }
+            default: // regular character
                 current_regex = new_single_regex(input[pos]);
                 printf("DEBUG: regular char\n");
+                break;
             }
 
-            //===== MODIFIERS ===== 
+
+            //===== MODIFIERS =====
 
             // repetition range a{2,5}
-            if (input[pos+1] == '{') {
+            if (input[pos + 1] == '{') {
                 int min = 0;
                 int max = 0;
                 pos += 2;
@@ -246,9 +271,11 @@ static int parse(regex** r, char* input) {
                 // parse min number
                 while (input[pos] != ',') {
                     if (input[pos] >= '0' && input[pos] <= '9') {
-                        min = min * 10 + (input[pos++] -'0');
+                        min = min * 10 + (input[pos++] - '0');
                     } else {
-                        printf("\nERROR: %c is no number and cannot specify a range\n", input[pos]);
+                        printf("\nERROR: %c is no number and cannot specify a "
+                               "range\n",
+                               input[pos]);
                         return 0;
                     }
                 }
@@ -258,9 +285,11 @@ static int parse(regex** r, char* input) {
                 // read max number
                 while (input[pos] != '}') {
                     if (input[pos] >= '0' && input[pos] <= '9') {
-                        max = max * 10 + (input[pos++] -'0');
+                        max = max * 10 + (input[pos++] - '0');
                     } else {
-                        printf("\nERROR: %c is no number and cannot specify a range\n", input[pos]);
+                        printf("\nERROR: %c is no number and cannot specify a "
+                               "range\n",
+                               input[pos]);
                         return 0;
                     }
                 }
@@ -270,20 +299,20 @@ static int parse(regex** r, char* input) {
                 if (min < 0 || max < 1 || min > max) {
                     printf("\nERROR: invalid range\n");
                     return 0;
-                }                
+                }
 
                 // create max-1 copies to be concatenated behind current_regex
                 temp_vector = new_vector(sizeof(regex*), NULL);
-                for(int i = 0; i < (max-1); i++ ) {
+                for (int i = 0; i < (max - 1); i++) {
                     temp_regex = copy_regex(current_regex);
                     vector_push(temp_vector, &temp_regex);
                 }
 
 
                 // fold the additional regexes into a single one
-                for (int i = max-2; i >= 0; i--) {
+                for (int i = max - 2; i >= 0; i--) {
                     vector_pop(temp_vector, &temp_regex);
-                    if (i >= min-1) {
+                    if (i >= min - 1) {
                         regex_optional(temp_regex);
                     }
                     if (i > 0) {
@@ -307,15 +336,15 @@ static int parse(regex** r, char* input) {
             }
 
             // zero or one repetition a?
-            else if (input[pos+1] == '?') {
+            else if (input[pos + 1] == '?') {
                 regex_optional(current_regex);
 
                 // a??
-                if (input[pos+2] == '?') {
+                if (input[pos + 2] == '?') {
                     regex_make_lazy(current_regex);
                     pos += 3;
-                } 
-                
+                }
+
                 // a?
                 else {
                     regex_make_greedy(current_regex);
@@ -326,15 +355,15 @@ static int parse(regex** r, char* input) {
             }
 
             // zero to infty repetitions a* or a*?
-            else if (input[pos+1] == '*') {
+            else if (input[pos + 1] == '*') {
                 regex_repeat(current_regex);
 
                 // a*?
-                if (input[pos+2] == '?') {
+                if (input[pos + 2] == '?') {
                     regex_make_lazy(current_regex);
                     pos += 3;
-                } 
-                
+                }
+
                 // a*
                 else {
                     regex_make_greedy(current_regex);
@@ -342,39 +371,40 @@ static int parse(regex** r, char* input) {
                 }
                 printf("DEBUG: * modifier\n");
             }
-            
+
             // one to infty repetitions a+ or a+?
-            else if (input[pos+1] == '+') {
+            else if (input[pos + 1] == '+') {
                 temp_regex = copy_regex(current_regex);
                 regex_repeat(temp_regex);
                 regex_concat(current_regex, temp_regex);
 
                 // a+?
-                if (input[pos+2] == '?') {
+                if (input[pos + 2] == '?') {
                     regex_make_lazy(current_regex);
                     pos += 3;
-                } 
-                
+                }
+
                 // a+
                 else {
                     regex_make_greedy(current_regex);
                     pos += 2;
                 }
                 printf("DEBUG: + modifier\n");
-            } 
-            
+            }
+
             // no modifiers
             else {
                 pos++;
                 printf("DEBUG: no modifiers\n");
             }
         }
-        
+
         // ^
         else if (input[pos] == '^') {
             // must be the first symbol in a regex string
             if (pos > 0) {
-                printf("ERROR: ^ can only be used as the first symbol of a regex string\n");
+                printf("ERROR: ^ can only be used as the first symbol of a "
+                       "regex string\n");
                 return 0;
             } else {
                 pos++;
@@ -383,12 +413,13 @@ static int parse(regex** r, char* input) {
                 continue;
             }
         }
-        
+
         // $
         else if (input[pos] == '$') {
             // must be the last symbol in a regex string
-            if (!in(input[pos+1], "\n\0", 2)) {
-                printf("ERROR: $ can only be used as the last symbol of a regex string\n");
+            if (!in(input[pos + 1], "\n\0", 2)) {
+                printf("ERROR: $ can only be used as the last symbol of a "
+                       "regex string\n");
                 return 0;
             } else {
                 if (level == 0) {
@@ -437,7 +468,8 @@ static int parse(regex** r, char* input) {
             return 0;
         }
 
-        // if a value was assigned to current_regex: integrate it into the object list
+        // if a value was assigned to current_regex: integrate it into the
+        // object list
         if (current_regex != NULL) {
             vector_pop(regex_objects, &temp_vector);
             int alternative;
@@ -474,7 +506,9 @@ static int parse(regex** r, char* input) {
 
     if (level || alternative) {
         if (level) {
-            printf("ERROR: %i blocks are not closed at the end of your expression\n", level);
+            printf("ERROR: %i blocks are not closed at the end of your "
+                   "expression\n",
+                   level);
             return 0;
         } else {
             printf("ERROR: alternative not satisfied\n");
@@ -486,7 +520,7 @@ static int parse(regex** r, char* input) {
         temp_vector->iterator = 0;
 
         if (vector_next(temp_vector, &current_regex)) {
-            while(vector_next(temp_vector, &temp_regex)) {
+            while (vector_next(temp_vector, &temp_regex)) {
                 regex_concat(current_regex, temp_regex);
             }
         }
@@ -516,20 +550,18 @@ static int parse(regex** r, char* input) {
 static int remove_epsilon_transitions(regex* r) {
     // calculate epsilon closure for every state
     // visited is initialized with 0 (?)
-    // and marked with 1 when visited 
+    // and marked with 1 when visited
     vector* epsilon_closure_size = new_vector(sizeof(int), NULL);
     vector* epsilon_closure_list = new_vector(sizeof(vector*), NULL);
     vector* marked = new_vector(sizeof(int), NULL);
 
+
     int null_const = 0;
     int one_const = 1;
     int two_const = 2;
-    int temp_int = 0;
-    int temp_int2 = 0;
-    vector* temp_vector = NULL;
 
     // initialize vectors
-    for (int i = 0; i < r->size; i++) {
+    for (int i = 0; i < r->nr_states; i++) {
         vector_push(epsilon_closure_size, &null_const);
         vector_push(marked, &null_const);
         vector* y = new_vector(sizeof(int), NULL);
@@ -539,43 +571,63 @@ static int remove_epsilon_transitions(regex* r) {
     stack* s = new_stack(sizeof(int), NULL);
 
     // iterate over all states and calculate the epsilon closures
-    for (int state_nr = 0; state_nr < r->size; state_nr++) {
-        // reset the marked vector
+    for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
+        // reset the "marked" vector
         vector_reset_iterator(marked);
         do {
             vector_set(marked, &null_const);
         } while (vector_move_iterator(marked));
 
-        // get a "reference" to the partial vector (contains a list of all states
-        // that are in the epsilon closure)
-        vector_get_at(epsilon_closure_list, state_nr, &temp_vector);
-        
-        // look if there's already a marked set of states from previous iterations
-        vector_get_at(epsilon_closure_size, state_nr, &temp_int);
-        if (temp_int) {
-            vector_reset_iterator(temp_vector);
+        // get a "reference" to the partial vector (contains a list of all
+        // states that are in the epsilon closure)
+        vector* current_epsilon_closure;
+        vector_get_at(epsilon_closure_list, state_nr, &current_epsilon_closure);
+
+        // look if there's already a marked set of states from previous
+        // iterations
+        int prev_marked_set = 0;
+        vector_get_at(epsilon_closure_size, state_nr, &prev_marked_set);
+        if (prev_marked_set) {
+            vector_reset_iterator(current_epsilon_closure);
             // push all to the stack for further processing
-            // + mark them as already visited, but with a 2 so they won't get stored twice
-            while (vector_next(temp_vector, &temp_int)) {
-                stack_push(s, &temp_int);
-                vector_set_at(marked, temp_int, &two_const);
+            // + mark them as already visited, but with a 2 so they won't get
+            // stored twice
+            int state_to_examine;
+            while (vector_next(current_epsilon_closure, &state_to_examine)) {
+                stack_push(s, &state_to_examine);
+                vector_set_at(marked, state_to_examine, &two_const);
             }
         } else {
             stack_push(s, &state_nr);
             vector_set_at(marked, state_nr, &one_const);
         }
-        
+
         // TODO: make more efficient by writing intermediate results
         // mark all reachable states
         int processed_state;
         while (stack_pop(s, &processed_state)) {
             // iterate over all transitions of the processed state
-            for (int transition_nr = 0; transition_nr < r->states[processed_state]->size; transition_nr++) {
-                if (r->states[processed_state]->transitions[transition_nr]->epsilon) {
-                    vector_get_at(marked, r->states[processed_state]->transitions[transition_nr]->next_state, &temp_int);
-                    if (!temp_int) {
-                        vector_set_at(marked, r->states[processed_state]->transitions[transition_nr]->next_state, &one_const);
-                        stack_push(s, &(r->states[processed_state]->transitions[transition_nr]->next_state));
+            for (int transition_nr = 0;
+                 transition_nr < r->states[processed_state]->nr_transitions;
+                 transition_nr++) {
+                if (r->states[processed_state]
+                        ->transitions[transition_nr]
+                        ->status == ts_epsilon) {
+                    int next_state_marked;
+                    vector_get_at(marked,
+                                  r->states[processed_state]
+                                      ->transitions[transition_nr]
+                                      ->next_state,
+                                  &next_state_marked);
+                    if (!next_state_marked) {
+                        vector_set_at(marked,
+                                      r->states[processed_state]
+                                          ->transitions[transition_nr]
+                                          ->next_state,
+                                      &one_const);
+                        stack_push(s, &(r->states[processed_state]
+                                            ->transitions[transition_nr]
+                                            ->next_state));
                     }
                 }
             }
@@ -583,30 +635,27 @@ static int remove_epsilon_transitions(regex* r) {
 
         // put the reachable states into the epsilon closure list
         vector_reset_iterator(marked);
-        while(vector_get(marked, &temp_int)) {
-            if (temp_int == 1) {
-                temp_int2 = marked->iterator - 1;
-                vector_push(temp_vector, &temp_int2);
+        int examined_state = 0;
+        int state_reachable = 0;
+        while (vector_next(marked, &state_reachable)) {
+            if (state_reachable == 1) {
+                examined_state = marked->iterator - 1;
+                vector_push(current_epsilon_closure, &examined_state);
             }
         }
 
-        // copy the (maybe) changed partial vector back
-        vector_set_at(epsilon_closure_list, state_nr, &temp_vector);
-        temp_vector = NULL;
-        temp_int = 0;
-        temp_int2 = 0;
+        // copy the (maybe) changed partial vector back and write its size
+        vector_set_at(epsilon_closure_list, state_nr, &current_epsilon_closure);
+        vector_set_at(epsilon_closure_size, state_nr,
+                      &(current_epsilon_closure->size));
     }
     delete_stack(&s);
 
-    // BUG: will only remove epsilons at the end, will leave holes and lose pointers at the end
-    // first remove all epsilon transitions to save time
-    // -> just mark them as dead, that's more efficient than resizing the array for each change
-    for (int state_nr = 0; state_nr < r->size; state_nr++) {
-        for (int j = r->states[state_nr]->size - 1; j >= 0; j--) {
-            if (r->states[state_nr]->transitions[j]->epsilon) {
-                free(r->states[state_nr]->transitions[j]);
-                r->states[state_nr]->transitions =
-                    realloc(r->states[state_nr]->transitions, --(r->states[state_nr]->size) * sizeof(transition*));
+    // remove all epsilon transitions by marking them as dead
+    for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
+        for (int j = r->states[state_nr]->nr_transitions - 1; j >= 0; j--) {
+            if (r->states[state_nr]->transitions[j]->status == ts_epsilon) {
+                r->states[state_nr]->transitions[j]->status = ts_dead;
             }
         }
     }
@@ -615,70 +664,124 @@ static int remove_epsilon_transitions(regex* r) {
     int nr_symbols = 0;
     char* symbols = NULL;
 
-    for (int state_nr = 0; state_nr < r->size; state_nr++) {
-        for (int transition_nr = 0; transition_nr < r->states[state_nr]->size; transition_nr++) {
-            if (!in(r->states[state_nr]->transitions[state_nr]->symbol, symbols, nr_symbols)) {
+    for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
+        for (int transition_nr = 0;
+             transition_nr < r->states[state_nr]->nr_transitions;
+             transition_nr++) {
+            if (r->states[state_nr]->transitions[transition_nr]->status ==
+                    ts_active &&
+                !in(r->states[state_nr]->transitions[transition_nr]->symbol,
+                    symbols, nr_symbols)) {
                 symbols = realloc(symbols, ++nr_symbols * sizeof(char));
-                symbols[nr_symbols-1] = r->states[state_nr]->transitions[transition_nr]->symbol;
+                symbols[nr_symbols - 1] =
+                    r->states[state_nr]->transitions[transition_nr]->symbol;
             }
         }
     }
-    
+
+
     // iterate over all states and write the new transitions
-    for (int i = 0; i < r->size; i++) {
+    for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
+        vector* current_epsilon_closure;
+        vector_get_at(epsilon_closure_list, state_nr, &current_epsilon_closure);
 
         // iterate over possible symbols
-        for (int j = 0; j < nr_symbols; j++) {
+        for (int symbol_iterator = 0; symbol_iterator < nr_symbols;
+             symbol_iterator++) {
 
             // mark all states as not reachable
-            for (int k = 0; k < r->size; k++) {
-                marked[k] = 0;
-            }
+            vector_reset_iterator(marked);
+            do {
+                vector_set(marked, &null_const);
+            } while (vector_move_iterator(marked));
 
-            char symbol = symbols[j];
+            char symbol = symbols[symbol_iterator];
 
             // iterate over all states in the epsilon closure
-            // mark their successor if they have a transition with the current symbol
-            for (int k = 0; k < ec_size[i]; k++) {
-                for (int l = 0; l < r->states[ec[i][k]]->size; l++) {
-                    if (r->states[ec[i][k]]->transitions[l]->symbol == symbol) {
-                        marked[r->states[ec[i][k]]->transitions[l]->next_state] = 1;
+            // mark their successor if they have a transition with the current
+            // symbol
+            vector_reset_iterator(current_epsilon_closure);
+            int processed_state;
+            while (vector_next(current_epsilon_closure, &processed_state)) {
+                for (int transition_iterator = 0;
+                     transition_iterator <
+                     r->states[processed_state]->nr_transitions;
+                     transition_iterator++) {
+                    if (r->states[processed_state]
+                            ->transitions[transition_iterator]
+                            ->symbol == symbol) {
+                        vector_set_at(marked,
+                                      r->states[processed_state]
+                                          ->transitions[transition_iterator]
+                                          ->next_state,
+                                      &one_const);
                     }
                 }
             }
 
-            // now all states directly reachable with symbol from i's epsilon closure
-            // are marked -> mark the epsilon closure of those symbols
-            for (int k = 0; k < r->size; k++) {
-                if (marked[k]) {
-                    for (int l = 0; l < ec_size[k]; l++) {
-                        marked[ec[k][l]] = 1;
+            // now all states directly reachable with symbol from the current
+            // epsilon closure are marked -> mark the epsilon closure of those
+            // states
+            for (int checked_state = 0; checked_state < r->nr_states;
+                 checked_state++) {
+                int is_reachable;
+                vector_get_at(marked, checked_state, &is_reachable);
+                if (is_reachable) {
+                    vector* checked_epsilon_closure;
+                    vector_get_at(epsilon_closure_list, checked_state,
+                                  &checked_epsilon_closure);
+                    vector_reset_iterator(checked_epsilon_closure);
+                    int next_reachable_state;
+                    while (vector_next(checked_epsilon_closure,
+                                       &next_reachable_state)) {
+                        vector_set_at(marked, next_reachable_state, &one_const);
                     }
                 }
             }
 
-            // remove duplicates: iterate over the state's transitions
-            for (int k = 0; k < r->states[i]->size; k++) {
-                if (r->states[i]->transitions[k]->symbol == symbols[j] && marked[r->states[i]->transitions[k]->next_state]) {
-                    marked[r->states[i]->transitions[k]->next_state] = 0;
+            // remove duplicates: iterate over the current state's transitions
+            // and unmark all states that are already reachable with the current
+            // symbol
+            for (int transition_iterator = 0;
+                 transition_iterator < r->states[state_nr]->nr_transitions;
+                 transition_iterator++) {
+                if (r->states[state_nr]
+                            ->transitions[transition_iterator]
+                            ->symbol == symbol &&
+                    r->states[state_nr]
+                            ->transitions[transition_iterator]
+                            ->status == ts_active) {
+                    vector_set_at(marked,
+                                  r->states[state_nr]
+                                      ->transitions[transition_iterator]
+                                      ->next_state,
+                                  &null_const);
                 }
             }
-            
+
             // now all states that can be reached with symbol are marked
-            // add transitions for them
-            for (int k = 0; k < r->size; k++) {
-                if (marked[k]) {
-                    r->states[i]->transitions = realloc(r->states[i]->transitions, ++(r->states[i]->size) * sizeof(transition*));
-                    r->states[i]->transitions[r->states[i]->size-1] = new_transition(0, symbol, k);
+            // so finally, we can add transitions for them
+            int is_reachable;
+            vector_reset_iterator(marked);
+            while (vector_next(marked, &is_reachable)) {
+                if (is_reachable) {
+                    r->states[state_nr]->transitions =
+                        realloc(r->states[state_nr]->transitions,
+                                ++(r->states[state_nr]->nr_transitions) *
+                                    sizeof(transition*));
+                    r->states[state_nr]
+                        ->transitions[r->states[state_nr]->nr_transitions - 1] =
+                        new_transition(ts_active, symbol, marked->iterator - 1);
                 }
             }
-            
         }
-
     }
-    
+
+
+    free(symbols);
     delete_vector(&marked);
     delete_vector(&epsilon_closure_size);
+    vector* temp_vector;
     while (vector_pop(epsilon_closure_list, &temp_vector)) {
         delete_vector(&temp_vector);
     }
@@ -703,13 +806,14 @@ static int make_deterministic(regex* r) {
     int nr_symbols = 0;
 
     // iterate over states
-    for (int i = 0; i < r->size; i++) {
+    for (int i = 0; i < r->nr_states; i++) {
         // iterate over transitions
-        for (int j = 0; j < r->states[i]->size; j++) {
+        for (int j = 0; j < r->states[i]->nr_transitions; j++) {
             // accumulate all symbols
-            if (!in(r->states[i]->transitions[j]->symbol, symbols, nr_symbols)) {
+            if (!in(r->states[i]->transitions[j]->symbol, symbols,
+                    nr_symbols)) {
                 symbols = realloc(symbols, ++nr_symbols * sizeof(char));
-                symbols[nr_symbols-1] = r->states[i]->transitions[j]->symbol;
+                symbols[nr_symbols - 1] = r->states[i]->transitions[j]->symbol;
             }
         }
     }
@@ -726,7 +830,9 @@ static int make_deterministic(regex* r) {
     nr_states[0] = 1;
     nr_state_sets++;
     states = malloc(sizeof(state*));
-    states[0] = new_state(0, none, (r->states[0]->type == start_end) ? start_end : start);
+    states[0] = new_state(0, sb_none,
+                          (r->states[0]->type == st_start_end) ? st_start_end
+                                                               : st_start);
 
     // process all states on the stack
     int state_pos;
@@ -740,27 +846,41 @@ static int make_deterministic(regex* r) {
             int* next_states = NULL;
             int nr_next_states = 0;
 
-            // iterate over all old states that belong to the current combined state
+            // iterate over all old states that belong to the current combined
+            // state
             for (int j = 0; j < nr_states[state_pos]; j++) {
                 int state_nr = state_sets[state_pos][j];
 
                 // find all next states with the current symbol
-                for (int k = 0; k < r->states[state_nr]->size; k++) {
+                for (int k = 0; k < r->states[state_nr]->nr_transitions; k++) {
                     if (r->states[state_nr]->transitions[k]->symbol == symbol) {
                         int already_there = 0;
-                        // check if the next_state is already contained in next_states
+                        // check if the next_state is already contained in
+                        // next_states
                         for (int l = 0; l < nr_next_states; l++) {
-                            if (r->states[state_nr]->transitions[k]->next_state == next_states[l]) {
+                            if (r->states[state_nr]
+                                    ->transitions[k]
+                                    ->next_state == next_states[l]) {
                                 already_there = 1;
                                 break;
                             }
                         }
                         if (!already_there) {
-                            next_states = realloc(next_states, ++nr_next_states * sizeof(int));
-                            next_states[nr_next_states-1] = r->states[state_nr]->transitions[k]->next_state;
-                            
-                            // check if it is an end state -> must be marked in the new state
-                            if (r->states[r->states[state_nr]->transitions[k]->next_state]->type == end || r->states[r->states[state_nr]->transitions[k]->next_state]->type == start_end) {
+                            next_states = realloc(
+                                next_states, ++nr_next_states * sizeof(int));
+                            next_states[nr_next_states - 1] =
+                                r->states[state_nr]->transitions[k]->next_state;
+
+                            // check if it is an end state -> must be marked in
+                            // the new state
+                            if (r->states[r->states[state_nr]
+                                              ->transitions[k]
+                                              ->next_state]
+                                        ->type == st_end ||
+                                r->states[r->states[state_nr]
+                                              ->transitions[k]
+                                              ->next_state]
+                                        ->type == st_start_end) {
                                 end_state_marker = 1;
                             }
                         }
@@ -795,18 +915,22 @@ static int make_deterministic(regex* r) {
 
             // state is new and needs to be created
             if (exists < 0) {
-                // save the state with its partial states and create the corresponding transition
-                state_sets = realloc(state_sets, ++nr_state_sets * (sizeof(int*)));
-                state_sets[nr_state_sets-1] = malloc(nr_next_states * sizeof(int));
+                // save the state with its partial states and create the
+                // corresponding transition
+                state_sets =
+                    realloc(state_sets, ++nr_state_sets * (sizeof(int*)));
+                state_sets[nr_state_sets - 1] =
+                    malloc(nr_next_states * sizeof(int));
                 for (int j = 0; j < nr_next_states; j++) {
-                    state_sets[nr_state_sets-1][j] = next_states[j];
+                    state_sets[nr_state_sets - 1][j] = next_states[j];
                 }
                 nr_states = realloc(nr_states, nr_state_sets * sizeof(int));
-                nr_states[nr_state_sets-1] = nr_next_states;
+                nr_states[nr_state_sets - 1] = nr_next_states;
                 states = realloc(states, nr_state_sets * sizeof(state));
-                
-                states[nr_state_sets-1] = new_state(0, none, ((end_state_marker == 1) ? end : middle));
-                
+
+                states[nr_state_sets - 1] = new_state(
+                    0, sb_none, ((end_state_marker == 1) ? st_end : st_middle));
+
                 exists = nr_state_sets - 1;
 
                 // push the new state to the stack so it will be processed
@@ -814,21 +938,25 @@ static int make_deterministic(regex* r) {
             }
 
             // now the current state can be linked to the created next_state
-            states[state_pos]->transitions = realloc(states[state_pos]->transitions, ++(states[state_pos]->size) * sizeof(transition*));
-            states[state_pos]->transitions[states[state_pos]->size-1] = new_transition(0, symbol, exists);
+            states[state_pos]->transitions = realloc(
+                states[state_pos]->transitions,
+                ++(states[state_pos]->nr_transitions) * sizeof(transition*));
+            states[state_pos]
+                ->transitions[states[state_pos]->nr_transitions - 1] =
+                new_transition(ts_active, symbol, exists);
 
             free(next_states);
         }
     }
 
     // replace the old regex object with the new one
-    for (int i = 0; i < r->size; i++) {
+    for (int i = 0; i < r->nr_states; i++) {
         free_state(r->states[i]);
         free(r->states[i]);
     }
     free(r->states);
     r->states = states;
-    r->size = nr_state_sets;
+    r->nr_states = nr_state_sets;
 
     // free resources
     free(nr_states);

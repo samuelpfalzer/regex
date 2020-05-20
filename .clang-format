@@ -1,0 +1,6 @@
+---
+BasedOnStyle:  LLVM
+IndentWidth: 4
+MaxEmptyLinesToKeep: 2
+PointerAlignment: Left
+BinPackParameters: false

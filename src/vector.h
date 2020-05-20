@@ -3,9 +3,10 @@
 
 
 // A generic stack implementation
-// Create an instance with stack* s = new_stack(sizof(type), (NULL|function pointer));
-// the second parameter takes a pointer to a function that frees an instance of the contained type
-// if provided, every remaining element on the stack will be freed upon deletion
+// Create an instance with stack* s = new_stack(sizof(type), (NULL|function
+// pointer)); the second parameter takes a pointer to a function that frees an
+// instance of the contained type if provided, every remaining element on the
+// stack will be freed upon deletion
 
 
 typedef struct {
