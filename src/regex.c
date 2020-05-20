@@ -31,6 +31,18 @@ regex* new_single_regex(char symbol) {
     return r;
 }
 
+regex* new_empty_regex() {
+    regex* r = malloc(sizeof(regex));
+    r->line_start = 0;
+    r->line_end = 0;
+    r->size = 1;
+    r->states = malloc(sizeof(state*));
+    r->states[0] = new_state(0, none, start_end);
+    return r;
+}
+
+
+// TODO: change signature to void free_regex(regex*)
 void free_regex(regex** r) {
     if ((*r) == NULL) {
         return;
@@ -221,4 +233,22 @@ regex* copy_regex(regex* r) {
     }
 
     return r2;
+}
+
+
+void regex_make_lazy(regex* a) {
+    for (int i = 0; i < a->size; i++) {
+        if (a->states[i]->type == end || a->states[i]->type == start_end) {
+            a->states[i]->behavior = lazy;
+        }
+    }
+}
+
+
+void regex_make_greedy(regex* a) {
+    for (int i = 0; i < a->size; i++) {
+        if (a->states[i]->type == end || a->states[i]->type == start_end) {
+            a->states[i]->behavior = greedy;
+        }
+    }
 }

@@ -1,5 +1,5 @@
 CC := gcc
-CCFLAGS := -I$(HFILES)
+CCFLAGS := -g -I$(HFILES)
 
 SRC := src
 BIN := bin
@@ -11,10 +11,10 @@ OFILES := $(patsubst $(SRC)/%.c, $(OBJ)/%.o, $(CFILES))
 
 
 all : $(OFILES)
-	$(CC) -o $(BIN)/main $(OFILES)
+	$(CC) -g -o $(BIN)/main $(OFILES)
 
 $(OBJ)/%.o : $(SRC)/%.c
-	$(CC) -c -o $@ $<
+	$(CC) -g -c -o $@ $<
 
 clean:
 	rm -f $(OBJ)/*

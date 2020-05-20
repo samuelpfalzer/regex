@@ -27,7 +27,6 @@ supported regular expression subset:
 //========== TYPE DEFINITIONS ==========
 
 
-
 typedef struct {
     int epsilon;
     char symbol;
@@ -91,6 +90,9 @@ regex* new_regex();
 // returns a new malloced regex instance with a single transition
 regex* new_single_regex(char symbol);
 
+// only one start_end state
+regex* new_empty_regex();
+
 // returns a malloced copy of the regex r
 regex* copy_regex(regex* r);
 
@@ -111,6 +113,12 @@ void regex_repeat(regex* a);
 
 // repeat the regex a 0 or 1 times
 void regex_optional(regex* a);
+
+// mark the regex as lazy (accepting the smallest possible amount of chars)
+void regex_make_lazy(regex* a);
+
+// mark the regex as greedy (accepting as many chars as possible)
+void regex_make_greedy(regex* a);
 
 
 

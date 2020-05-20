@@ -4,12 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "vector.h"
 
 
 //========== DEFINITIONS ==========
-
-
-#define MAX_LEVELS 20
 
 const char* REGULAR_SYMBOLS = "\"\'#/&=@!%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const char* ESCAPED_SYMBOLS = "-^$()[]{}\\*+?.|";
@@ -60,37 +58,31 @@ int regex_compile(regex** r, char* input) {
 static int parse(regex** r, char* input) {
     int level = 0;
 
-    // keep track how many regex objects there currently are on each level
-    int elements[MAX_LEVELS];
-    for (int i = 0; i < MAX_LEVELS; i++) {
-        elements[i] = 0;
-    }
+    regex* current_regex = NULL;
+    vector* temp_vector = NULL;
+    regex* temp_regex = NULL;
+    regex* temp_regex2 = NULL;
+    int temp_int;
+
+    vector* elements_on_level = new_vector(sizeof(int), NULL);
+    vector_push(elements_on_level, &level);
+
     int pos = 0;
     
-    // keep track on which levels there currently is an active alternativ
-    // necessary to implement precedence | -> concat
-    int alternative[MAX_LEVELS];
-    for (int i = 0; i < MAX_LEVELS; i++) {
-        alternative[i] = 0;
-    }
+    vector* alternative_on_level = new_vector(sizeof(int), NULL);
+    vector_push(alternative_on_level, &level);
 
-    // temporarily save single regex objects to concatenate them later
-    regex*** rs = malloc(MAX_LEVELS * sizeof(regex**));
-    for (int i = 0; i < MAX_LEVELS; i++) {
-        rs[i] = NULL;
-    }
+    vector* regex_objects = new_vector(sizeof(vector*), NULL);
+    temp_vector = new_vector(sizeof(regex*), NULL);
+    vector_push(regex_objects, &temp_vector);
+
+    int line_start = 0;
+    int line_end = 0;
+
 
     while (!in(input[pos], "\n\0", 2)) {
-        // store the partial regex built in this iteration
-        // and mark if something was added
-        // regex_built will stay 0 if e.g. a new block is opened
-        int regex_built = 0;
-        regex* r_temp;
-
-        // alphanumerical character
-        // or end of block
-        // or random character
-        // or escaped character
+        printf("DEBUG: start of parse loop: level %d, pos %d (char %c)\n", level, pos, input[pos]);
+        // alphanumerical character | end of block | any | escaped character
         if (
             (in(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS))) ||
             (input[pos] == '[') ||
@@ -98,59 +90,74 @@ static int parse(regex** r, char* input) {
             (input[pos] == ')' && level > 0) ||
             (input[pos] == '\\')
         ) {
-            // escape
+
+            //===== CHARACTERS =====
+
+            // escaped character
             if (input[pos] == '\\') {
                 if (!in(input[pos+1], ESCAPED_SYMBOLS, strlen(ESCAPED_SYMBOLS))) {
                     printf("ERROR: invalid escape sequence \\%c\n", input[pos+1]);
                     return 0;
                 } else {
-                    r_temp = new_single_regex(input[pos]);
-                    regex_built = 1;
+                    current_regex = new_single_regex(input[pos]);
+                    printf("DEBUG: escaped char\n");
                 }
-            } else if (input[pos] == ')') {
-                if (alternative[level] == 1) {
+            } 
+            
+            // closed block
+            else if (input[pos] == ')') {
+                vector_get_at(alternative_on_level, level, &temp_int);
+                if (temp_int) {
                     printf("ERROR: alternative not satisfied\n");
                     return 0;
                 }
                 
-                if (elements[level] < 1) {
+                vector_pop(elements_on_level, &temp_int);
+                if (!temp_int) {
                     printf("ERROR: empty block\n");
                     return 0;
                 }
 
                 // concatenate all elements of the current level into one
                 // erase the current level's element table
-                // and store the concatenated element in r_temp
-                for (int i = elements[level]-1; i > 0; i--) {
-                    regex_concat(rs[level][i-1], rs[level][i]);
+                // and store the concatenated element in current_regex
+                vector_pop(regex_objects, &temp_vector);
+                temp_vector->iterator = 0;
+                
+                vector_next(temp_vector, &current_regex);
+
+                while (vector_next(temp_vector, &temp_regex)) {
+                    regex_concat(current_regex, temp_regex);                    
                 }
-                r_temp = rs[level][0];
-                regex_built = 1;
 
-                rs[level] = NULL;
-                elements[level] = 0;
-
+                delete_vector(&temp_vector);
                 level--;
-            } else if (input[pos] == '.') {          
+                printf("DEBUG: block end\n");
+            } 
+            
+            // any character '.'
+            else if (input[pos] == '.') {          
                 // in this case, only two states are needed
                 // state 0 has a transition to state 1 for every valid symbol
-                r_temp = new_single_regex(ALL_SYMBOLS[0]);
-                r_temp->states[0]->transitions =
-                    realloc(r_temp->states[0]->transitions, strlen(ALL_SYMBOLS) * sizeof(transition*));
+                current_regex = new_single_regex(ALL_SYMBOLS[0]);
+                current_regex->states[0]->transitions =
+                    realloc(current_regex->states[0]->transitions, strlen(ALL_SYMBOLS) * sizeof(transition*));
                 for (int i = 1; i < strlen(ALL_SYMBOLS); i++) {
-                    r_temp->states[0]->transitions[i] = new_transition(0, ALL_SYMBOLS[i], 1);
+                    current_regex->states[0]->transitions[i] = new_transition(0, ALL_SYMBOLS[i], 1);
                 }
-                r_temp->states[0]->size = strlen(ALL_SYMBOLS);
-
-                regex_built = 1;                
-            } else if (input[pos] == '[') {
+                current_regex->states[0]->size = strlen(ALL_SYMBOLS);  
+                printf("DEBUG: any char\n");             
+            } 
+            
+            // character class
+            else if (input[pos] == '[') {
                 int inverted = 0;
                 if (input[pos+1] == '^') {
                     inverted = 1;
                     pos++;
                 }
 
-                if (input[pos++] == ']') {
+                if (input[++pos] == ']') {
                     printf("\nERROR: empty class not allowed\n");
                     return 0;
                 }
@@ -164,12 +171,16 @@ static int parse(regex** r, char* input) {
                         return 0;
                     }
 
+                    // escaped symbol
+                    if (input[pos] == '\\' && in(input[pos+1], ESCAPED_SYMBOLS, strlen(ESCAPED_SYMBOLS))) {
+                        pos++;
+                        symbols = realloc(symbols, (++nr_symbols) * sizeof(char));
+                        symbols[nr_symbols-1] = input[pos++];
+                    }
+
                     // range
-                    if (input[pos+1] == '-') {
-                        if (
-                            in(input[pos+1], "\n\0", 2) ||
-                            in(input[pos+2], "\n\0", 2)
-                        ) {
+                    else if (input[pos+1] == '-') {
+                        if (in(input[pos+2], "\n\0", 2)) {
                             printf("\nERROR: class not closed");
                             return 0;
                         }
@@ -188,72 +199,53 @@ static int parse(regex** r, char* input) {
                             return 0;
                         } else {
                             for (char i = input[pos]; i <= input[pos+2]; i++) {
-                                // TODO: ugly
-                                if (symbols == NULL) {
-                                    nr_symbols++;
-                                    symbols = realloc(symbols, nr_symbols * sizeof(char));
-                                    symbols[nr_symbols-1] = i;
-                                } else if (!in(i, symbols, strlen(symbols))) {
-                                    nr_symbols++;
-                                    symbols = realloc(symbols, nr_symbols * sizeof(char));
+                                if (!in(i, symbols, nr_symbols)) {
+                                    symbols = realloc(symbols, (++nr_symbols) * sizeof(char));
                                     symbols[nr_symbols-1] = i;
                                 }
                             }
-
+                            // 3 chars: a-z
                             pos += 3;
                         }
                     } 
                     // single symbol
                     else {
-                        if (symbols == NULL) {
-                            nr_symbols++;
-                            symbols = realloc(symbols, nr_symbols * sizeof(char));
-                            symbols[nr_symbols-1] = input[pos];
-                        } else if (!in(input[pos], symbols, strlen(symbols))) {
-                            nr_symbols++;
-                            symbols = realloc(symbols, nr_symbols * sizeof(char));
-                            symbols[nr_symbols-1] = input[pos];
-                        }
-
-                        pos++;
+                        symbols = realloc(symbols, (++nr_symbols) * sizeof(char));
+                        symbols[nr_symbols-1] = input[pos++];
                     }
                 }
 
-                // like with ., only 2 states are needed for this part
-                r_temp = new_single_regex(symbols[0]);
-                r_temp->states[0]->transitions =
-                    realloc(r_temp->states[0]->transitions, nr_symbols * sizeof(transition*));
+                // like with '.', only 2 states are needed for this part
+                // just iterate over the valid symbol string and create a transition for each symbol
+                current_regex = new_single_regex(symbols[0]);
+                current_regex->states[0]->transitions =
+                    realloc(current_regex->states[0]->transitions, nr_symbols * sizeof(transition*));
                 for (int i = 1; i < nr_symbols; i++) {
-                    r_temp->states[0]->transitions[i] = new_transition(0, symbols[i], 1);
+                    current_regex->states[0]->transitions[i] = new_transition(0, symbols[i], 1);
                 }
-                r_temp->states[0]->size = nr_symbols;
-                regex_built = 1;
+                current_regex->states[0]->size = nr_symbols;
 
                 free(symbols);
+                printf("DEBUG: char class\n");
             } 
 
-            // single symbol
+            // regular character
             else {
-                r_temp = new_single_regex(input[pos]);
-                regex_built = 1;
+                current_regex = new_single_regex(input[pos]);
+                printf("DEBUG: regular char\n");
             }
 
-            // a?
-            if (input[pos+1] == '?') {
-                pos += 2;
-                regex_optional(r_temp);
-            } 
+            //===== MODIFIERS ===== 
 
-            // a{2,5}
-            else if (input[pos+1] == '{') {
-                char temp = input[pos];
+            // repetition range a{2,5}
+            if (input[pos+1] == '{') {
                 int min = 0;
                 int max = 0;
                 pos += 2;
 
-                // read min number
+                // parse min number
                 while (input[pos] != ',') {
-                    if (in(input[pos], "0123456789", 10)) {
+                    if (input[pos] >= '0' && input[pos] <= '9') {
                         min = min * 10 + (input[pos++] -'0');
                     } else {
                         printf("\nERROR: %c is no number and cannot specify a range\n", input[pos]);
@@ -265,7 +257,7 @@ static int parse(regex** r, char* input) {
 
                 // read max number
                 while (input[pos] != '}') {
-                    if (in(input[pos], "0123456789", 10)) {
+                    if (input[pos] >= '0' && input[pos] <= '9') {
                         max = max * 10 + (input[pos++] -'0');
                     } else {
                         printf("\nERROR: %c is no number and cannot specify a range\n", input[pos]);
@@ -275,107 +267,119 @@ static int parse(regex** r, char* input) {
 
                 pos++;
 
-                if (!(min >= 0 && max > 0 && min <= max)) {
+                if (min < 0 || max < 1 || min > max) {
                     printf("\nERROR: invalid range\n");
                     return 0;
-                }
-                
+                }                
 
-                // create max-1 copies to be concatenated behind r_temp
-                regex** r2 = malloc((max-1) * sizeof(regex*));
+                // create max-1 copies to be concatenated behind current_regex
+                temp_vector = new_vector(sizeof(regex*), NULL);
                 for(int i = 0; i < (max-1); i++ ) {
-                    r2[i] = copy_regex(r_temp);
+                    temp_regex = copy_regex(current_regex);
+                    vector_push(temp_vector, &temp_regex);
                 }
-                
+
 
                 // fold the additional regexes into a single one
                 for (int i = max-2; i >= 0; i--) {
+                    vector_pop(temp_vector, &temp_regex);
                     if (i >= min-1) {
-                        regex_optional(r2[i]);
+                        regex_optional(temp_regex);
                     }
                     if (i > 0) {
-                        regex_concat(r2[i-1], r2[i]);
+                        vector_pop(temp_vector, &temp_regex2);
+                        regex_concat(temp_regex2, temp_regex);
+                        vector_push(temp_vector, &temp_regex2);
                     }
                 }
 
                 // concat the additional regexes to the original one
-                regex_concat(r_temp, r2[0]);
+                vector_pop(temp_vector, &temp_regex);
+                regex_concat(current_regex, temp_regex);
+
+                delete_vector(&temp_vector);
 
                 // in case {0,x} the whole construct may be repeated 0 times
                 if (min == 0) {
-                    regex_optional(r_temp);
+                    regex_optional(current_regex);
                 }
+                printf("DEBUG: range modifier\n");
             }
-            
-            // TODO: remove redundant parts (next 4 for loops can be merged into one)
 
-            // a* or a*?
+            // zero or one repetition a?
+            else if (input[pos+1] == '?') {
+                regex_optional(current_regex);
+
+                // a??
+                if (input[pos+2] == '?') {
+                    regex_make_lazy(current_regex);
+                    pos += 3;
+                } 
+                
+                // a?
+                else {
+                    regex_make_greedy(current_regex);
+                    pos += 2;
+                }
+
+                printf("DEBUG: ? modifier\n");
+            }
+
+            // zero to infty repetitions a* or a*?
             else if (input[pos+1] == '*') {
-                regex_repeat(r_temp);
+                regex_repeat(current_regex);
 
                 // a*?
                 if (input[pos+2] == '?') {
-                    for (int i = 0; i < r_temp->size; i++) {
-                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
-                            r_temp->states[i]->behavior = lazy;
-                        }
-                    }
+                    regex_make_lazy(current_regex);
                     pos += 3;
                 } 
                 
                 // a*
                 else {
-                    for (int i = 0; i < r_temp->size;  i++) {
-                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
-                            r_temp->states[i]->behavior = greedy;
-                        }
-                    }
+                    regex_make_greedy(current_regex);
                     pos += 2;
                 }
+                printf("DEBUG: * modifier\n");
             }
             
-            // a+ or a+?
+            // one to infty repetitions a+ or a+?
             else if (input[pos+1] == '+') {
-                regex* r2 = copy_regex(r_temp);
-                regex_repeat(r2);
-                regex_concat(r_temp, r2);
+                temp_regex = copy_regex(current_regex);
+                regex_repeat(temp_regex);
+                regex_concat(current_regex, temp_regex);
 
                 // a+?
                 if (input[pos+2] == '?') {
-                    for (int i = 0; i < r_temp->size; i++) {
-                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
-                            r_temp->states[i]->behavior = lazy;
-                        }
-                    }
+                    regex_make_lazy(current_regex);
                     pos += 3;
                 } 
                 
                 // a+
                 else {
-                    for (int i = 0; i < r_temp->size; i++) {
-                        if (r_temp->states[i]->type == end || r_temp->states[i]->type == start_end) {
-                            r_temp->states[i]->behavior = greedy;
-                        }
-                    }
+                    regex_make_greedy(current_regex);
                     pos += 2;
                 }
+                printf("DEBUG: + modifier\n");
             } 
             
-            // a
+            // no modifiers
             else {
                 pos++;
+                printf("DEBUG: no modifiers\n");
             }
         }
         
         // ^
         else if (input[pos] == '^') {
             // must be the first symbol in a regex string
-            if (pos != 0) {
+            if (pos > 0) {
                 printf("ERROR: ^ can only be used as the first symbol of a regex string\n");
                 return 0;
             } else {
                 pos++;
-                rs[0][0]->line_start = 1;
+                line_start = 1;
+                printf("DEBUG: line start\n");
                 continue;
             }
         }
@@ -388,8 +392,9 @@ static int parse(regex** r, char* input) {
                 return 0;
             } else {
                 if (level == 0) {
-                    rs[0][0]->line_end = 1;
-                    return 1;
+                    pos++;
+                    line_end = 1;
+                    printf("DEBUG: line end\n");
                 } else {
                     printf("ERROR: %d () blocks not closed\n", level);
                     return 0;
@@ -401,18 +406,29 @@ static int parse(regex** r, char* input) {
         else if (input[pos] == '(') {
             pos++;
             level++;
-            elements[level] = 0;
+            int i = 0;
+            vector_push(elements_on_level, &i);
+            vector_push(alternative_on_level, &i);
+            temp_vector = new_vector(sizeof(vector*), NULL);
+            vector_push(regex_objects, &temp_vector);
+            printf("DEBUG: block start\n");
         }
 
         // alternative
         else if (input[pos] == '|') {
-            if (elements[level] == 0 || alternative[level] == 1) {
+            int elements, alternative;
+            vector_pop(elements_on_level, &elements);
+            vector_pop(alternative_on_level, &alternative);
+            if (elements == 0 || alternative == 1) {
                 printf("ERROR: invalid alternative\n");
                 return 0;
             } else {
-                alternative[level] = 1;
+                alternative = 1;
+                vector_push(elements_on_level, &elements);
+                vector_push(alternative_on_level, &alternative);
                 pos++;
             }
+            printf("DEBUG: alternative\n");
         }
 
         // invalid symbol
@@ -421,21 +437,43 @@ static int parse(regex** r, char* input) {
             return 0;
         }
 
-        // if a value was assigned to r_temp: integrate it into the object list
-        if (regex_built) {
-            if (alternative[level]) {
-                regex_alternative(rs[level][elements[level]-1], r_temp);
-                alternative[level] = 0;
+        // if a value was assigned to current_regex: integrate it into the object list
+        if (current_regex != NULL) {
+            vector_pop(regex_objects, &temp_vector);
+            int alternative;
+            vector_pop(alternative_on_level, &alternative);
+            if (alternative) {
+                vector_pop(temp_vector, &temp_regex);
+                regex_alternative(temp_regex, current_regex);
+                vector_push(temp_vector, &temp_regex);
+                alternative = 0;
+                printf("DEBUG: pushed alternative\n");
             } else {
-                elements[level]++;
-                rs[level] = realloc(rs[level], elements[level] * sizeof(regex*));
-                rs[level][elements[level]-1] = r_temp;
+                int elements;
+                vector_pop(elements_on_level, &elements);
+                elements++;
+                vector_push(elements_on_level, &elements);
+                vector_push(temp_vector, &current_regex);
+                printf("DEBUG: pushed element\n");
             }
+            vector_push(alternative_on_level, &alternative);
+            vector_push(regex_objects, &temp_vector);
         }
+
+        current_regex = NULL;
+        temp_vector = NULL;
+        temp_regex = NULL;
+        temp_regex2 = NULL;
+        temp_int = 0;
     }
 
-    if (!(level == 0 && alternative[level] == 0)) {
-        if (level != 0) {
+    printf("DEBUG: end of parse loop\n");
+
+    int alternative;
+    vector_pop(alternative_on_level, &alternative);
+
+    if (level || alternative) {
+        if (level) {
             printf("ERROR: %i blocks are not closed at the end of your expression\n", level);
             return 0;
         } else {
@@ -444,13 +482,30 @@ static int parse(regex** r, char* input) {
         }
     } else {
         // concatenate all level 0 regex elements
-        for (int i = elements[0]-1; i > 0; i--) {
-            regex_concat(rs[0][i-1], rs[0][i]);
-            rs[0][i] = NULL;
+        vector_pop(regex_objects, &temp_vector);
+        temp_vector->iterator = 0;
+
+        if (vector_next(temp_vector, &current_regex)) {
+            while(vector_next(temp_vector, &temp_regex)) {
+                regex_concat(current_regex, temp_regex);
+            }
         }
 
-        *r = rs[0][0];
-        free(rs);
+        printf("DEBUG: concatenated all elements\n");
+        delete_vector(&temp_vector);
+
+        current_regex->line_start = line_start;
+        current_regex->line_end = line_end;
+
+        delete_vector(&elements_on_level);
+        delete_vector(&alternative_on_level);
+
+        delete_vector(&regex_objects);
+
+        *r = current_regex;
+
+        printf("DEBUG: end of parsing\n");
+
         return 1;
     }
 }
@@ -460,80 +515,111 @@ static int parse(regex** r, char* input) {
 
 static int remove_epsilon_transitions(regex* r) {
     // calculate epsilon closure for every state
-    // visited is initialized with 0
-    // and marked with 1 when visited
-    int* ec_size = malloc(r->size * sizeof(int));
-    int** ec = malloc(r->size * sizeof(int*));
-    int* marked = malloc(r->size * sizeof(int));
-    stack* s = new_stack(sizeof(int), NULL);
+    // visited is initialized with 0 (?)
+    // and marked with 1 when visited 
+    vector* epsilon_closure_size = new_vector(sizeof(int), NULL);
+    vector* epsilon_closure_list = new_vector(sizeof(vector*), NULL);
+    vector* marked = new_vector(sizeof(int), NULL);
 
+    int null_const = 0;
+    int one_const = 1;
+    int two_const = 2;
+    int temp_int = 0;
+    int temp_int2 = 0;
+    vector* temp_vector = NULL;
+
+    // initialize vectors
     for (int i = 0; i < r->size; i++) {
-        ec_size[i] = 0;
+        vector_push(epsilon_closure_size, &null_const);
+        vector_push(marked, &null_const);
+        vector* y = new_vector(sizeof(int), NULL);
+        vector_push(epsilon_closure_list, &y);
     }
 
+    stack* s = new_stack(sizeof(int), NULL);
+
     // iterate over all states and calculate the epsilon closures
-    for (int i = 0; i < r->size; i++) {
-        for (int j = 0; j < r->size; j++) {
-            marked[j] = 0;
-        }
+    for (int state_nr = 0; state_nr < r->size; state_nr++) {
+        // reset the marked vector
+        vector_reset_iterator(marked);
+        do {
+            vector_set(marked, &null_const);
+        } while (vector_move_iterator(marked));
+
+        // get a "reference" to the partial vector (contains a list of all states
+        // that are in the epsilon closure)
+        vector_get_at(epsilon_closure_list, state_nr, &temp_vector);
+        
         // look if there's already a marked set of states from previous iterations
-        if (ec_size[i] > 0) {
-            for (int j = 0; j < ec_size[i]; j++) {
-                stack_push(s, &(ec[i][j]));
-                marked[j] = 1;
+        vector_get_at(epsilon_closure_size, state_nr, &temp_int);
+        if (temp_int) {
+            vector_reset_iterator(temp_vector);
+            // push all to the stack for further processing
+            // + mark them as already visited, but with a 2 so they won't get stored twice
+            while (vector_next(temp_vector, &temp_int)) {
+                stack_push(s, &temp_int);
+                vector_set_at(marked, temp_int, &two_const);
             }
         } else {
-            stack_push(s, &i);
-            marked[i] = 1;
+            stack_push(s, &state_nr);
+            vector_set_at(marked, state_nr, &one_const);
         }
         
         // TODO: make more efficient by writing intermediate results
         // mark all reachable states
-        int c;
-        while (stack_pop(s, &c)) {
-            // iterate over all transitions of state c
-            for (int j = 0; j < r->states[c]->size; j++) {
-                if (r->states[c]->transitions[j]->epsilon) {
-                    if (!marked[r->states[c]->transitions[j]->next_state]) {
-                        marked[r->states[c]->transitions[j]->next_state] = 1;
-                        stack_push(s, &(r->states[c]->transitions[j]->next_state));
+        int processed_state;
+        while (stack_pop(s, &processed_state)) {
+            // iterate over all transitions of the processed state
+            for (int transition_nr = 0; transition_nr < r->states[processed_state]->size; transition_nr++) {
+                if (r->states[processed_state]->transitions[transition_nr]->epsilon) {
+                    vector_get_at(marked, r->states[processed_state]->transitions[transition_nr]->next_state, &temp_int);
+                    if (!temp_int) {
+                        vector_set_at(marked, r->states[processed_state]->transitions[transition_nr]->next_state, &one_const);
+                        stack_push(s, &(r->states[processed_state]->transitions[transition_nr]->next_state));
                     }
                 }
             }
         }
-        
-        // put the reachable states into ec
-        for (int j = 0; j < r->size; j++) {
-            if (marked[j]) {
-                ec[i] = realloc(ec[i], ++ec_size[i]);
-                ec[i][ec_size[i]-1] = j;
+
+        // put the reachable states into the epsilon closure list
+        vector_reset_iterator(marked);
+        while(vector_get(marked, &temp_int)) {
+            if (temp_int == 1) {
+                temp_int2 = marked->iterator - 1;
+                vector_push(temp_vector, &temp_int2);
             }
         }
+
+        // copy the (maybe) changed partial vector back
+        vector_set_at(epsilon_closure_list, state_nr, &temp_vector);
+        temp_vector = NULL;
+        temp_int = 0;
+        temp_int2 = 0;
     }
     delete_stack(&s);
 
+    // BUG: will only remove epsilons at the end, will leave holes and lose pointers at the end
     // first remove all epsilon transitions to save time
-    for (int i = 0; i < r->size; i++) {
-        for (int j = r->states[i]->size - 1; j >= 0; j--) {
-            if (r->states[i]->transitions[j]->epsilon) {
-                free(r->states[i]->transitions[j]);
-                r->states[i]->transitions = realloc(r->states[i]->transitions, --(r->states[i]->size) * sizeof(transition*));
+    // -> just mark them as dead, that's more efficient than resizing the array for each change
+    for (int state_nr = 0; state_nr < r->size; state_nr++) {
+        for (int j = r->states[state_nr]->size - 1; j >= 0; j--) {
+            if (r->states[state_nr]->transitions[j]->epsilon) {
+                free(r->states[state_nr]->transitions[j]);
+                r->states[state_nr]->transitions =
+                    realloc(r->states[state_nr]->transitions, --(r->states[state_nr]->size) * sizeof(transition*));
             }
         }
     }
 
     // make a list of all symbols the automaton knows
     int nr_symbols = 0;
-    char* symbols;
+    char* symbols = NULL;
 
-    for (int i = 0; i < r->size; i++) {
-        for (int j = 0; j < r->states[i]->size; j++) {
-            if (nr_symbols == 0) {
+    for (int state_nr = 0; state_nr < r->size; state_nr++) {
+        for (int transition_nr = 0; transition_nr < r->states[state_nr]->size; transition_nr++) {
+            if (!in(r->states[state_nr]->transitions[state_nr]->symbol, symbols, nr_symbols)) {
                 symbols = realloc(symbols, ++nr_symbols * sizeof(char));
-                symbols[nr_symbols-1] = r->states[i]->transitions[j]->symbol;
-            } else if (!in(r->states[i]->transitions[j]->symbol, symbols, nr_symbols)) {
-                symbols = realloc(symbols, ++nr_symbols * sizeof(char));
-                symbols[nr_symbols-1] = r->states[i]->transitions[j]->symbol;
+                symbols[nr_symbols-1] = r->states[state_nr]->transitions[transition_nr]->symbol;
             }
         }
     }
@@ -591,12 +677,12 @@ static int remove_epsilon_transitions(regex* r) {
 
     }
     
-    free(marked);
-    free(ec_size);
-    for (int i = 0; i < r->size; i++) {
-        free(ec[i]);
+    delete_vector(&marked);
+    delete_vector(&epsilon_closure_size);
+    while (vector_pop(epsilon_closure_list, &temp_vector)) {
+        delete_vector(&temp_vector);
     }
-    free(ec);
+    delete_vector(&epsilon_closure_list);
 
     return 1;
 }
@@ -682,7 +768,7 @@ static int make_deterministic(regex* r) {
                 }
             }
 
-            if (nr_next_states == 0) {
+            if (!nr_next_states) {
                 free(next_states);
                 continue;
             }
