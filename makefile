@@ -5,13 +5,13 @@ SRC := src
 BIN := bin
 OBJ := obj
 
-CFILES := $(wildcard $(SRC)/*.c)
+CFILES := $(wildcard $(SRC)/*.c) example.c
 HFILES := $(wildcard $(SRC)/*.h)
 OFILES := $(patsubst $(SRC)/%.c, $(OBJ)/%.o, $(CFILES))
 
 
 all : $(OFILES)
-	$(CC) -g -o $(BIN)/main $(OFILES)
+	$(CC) -g -o $(BIN)/example $(OFILES)
 
 $(OBJ)/%.o : $(SRC)/%.c
 	$(CC) -g -c -o $@ $<
@@ -21,4 +21,4 @@ clean:
 	rm -f $(BIN)/*
 
 run:
-	./$(BIN)/main
+	./$(BIN)/example

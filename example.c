@@ -1,5 +1,5 @@
-#include "regex.h"
-#include "stack.h"
+#include "src/regex.h"
+#include "src/stack.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -31,17 +31,8 @@ int main(int argc, char* argv[]) {
         // getchar();
         return 0;
     } else {
-        for (int i = 0; i < 10000; i++) {
-            regex* r = NULL;
-            if (!regex_compile(&r, "abc")) {
-                printf("compiler error\n");
-                return 1;
-            };
-            free_regex(&r);
-        }
-
-        getchar();
-        return 0;
+        printf("usage: ./bin/main 'regular expression' 'string to match "
+               "against'\n");
     }
     return 1;
 }

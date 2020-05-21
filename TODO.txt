@@ -1,0 +1,9 @@
+- implement inverted character classes
+- implement named character classes like [:alnum:]
+- implement match all function
+- implement compile and match function
+- move the line_start and line_end attributes into the states to allow expressions like (^abc$)|(ab$)
+- replace vector-array conversion by simply using the pointer + size of the array (ugly but way faster)
+- fix memory leaks :)
+- minify the compiled automaton (optional, maybe faster without)
+- implement markers, e.g. 'ab<c*>de' with input 'abccde' matches and returns 'cc'
