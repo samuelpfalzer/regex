@@ -21,9 +21,9 @@
 //========== DEFINITIONS ==========
 
 const char* REGULAR_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
-                              "WXYZ0123456789\"\'#/&=@!%_: \t";
+                              "WXYZ0123456789\"\'#/&=@!%_: \t<>";
 const char* ESCAPED_SYMBOLS = "-^$()[]{}\\*+?.|";
-const char* ALL_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
+const char* ALL_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV<>"
                           "WXYZ0123456789\"\'#/&=@!%_: \t-^$()[]{}\\*+?.|";
 
 
@@ -35,7 +35,7 @@ static int parse(regex** r, char* input);
 
 static int remove_epsilon_transitions(regex* r);
 
-static int make_deterministic(regex* r);
+static int nfa_to_dfa(regex* r);
 
 
 //========== COMPILE FUNCTION ==========
@@ -50,14 +50,17 @@ int regex_compile(regex** r, char* input) {
         return 0;
     };
 
+    print_regex(*r);
+
     if (!remove_epsilon_transitions(*r)) {
         printf("ERROR: remove_epsilon_transitions failed\n");
         return 0;
     };
 
+    print_regex(*r);
 
-    if (!make_deterministic(*r)) {
-        printf("ERROR: make_deterministic failed\n");
+    if (!nfa_to_dfa(*r)) {
+        printf("ERROR: nfa_to_dfa failed\n");
         return 0;
     };
 
@@ -791,76 +794,94 @@ static int remove_epsilon_transitions(regex* r) {
 }
 
 
-static int make_deterministic(regex* r) {
-    // parallel arrays for the new combined states
-    int** state_sets = NULL;
-    int* nr_states = NULL;
-    int nr_state_sets = 0;
-    state** states = NULL;
+//========== NFA-DFA-CONVERSION ==========
 
-    // stack for storing newly found states
+
+static int nfa_to_dfa(regex* r) {
+    // store the new combined states
+    int nr_state_sets = 0;
+    vector* state_sets = new_vector(sizeof(vector*), NULL);
+    vector* states = new_vector(sizeof(state*), NULL);
+
+    // stack for storing states that need to be processed
     stack* s = new_stack(sizeof(int), NULL);
 
-    // string with all symbols the automaton knows
+    // accumulate a string with all symbols the automaton knows
     char* symbols = NULL;
     int nr_symbols = 0;
-
-    // iterate over states
-    for (int i = 0; i < r->nr_states; i++) {
-        // iterate over transitions
-        for (int j = 0; j < r->states[i]->nr_transitions; j++) {
-            // accumulate all symbols
-            if (!in(r->states[i]->transitions[j]->symbol, symbols,
-                    nr_symbols)) {
+    for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
+        for (int transition_nr = 0;
+             transition_nr < r->states[state_nr]->nr_transitions;
+             transition_nr++) {
+            if ((r->states[state_nr]->transitions[transition_nr]->status ==
+                 ts_active) &&
+                !in(r->states[state_nr]->transitions[transition_nr]->symbol,
+                    symbols, nr_symbols)) {
                 symbols = realloc(symbols, ++nr_symbols * sizeof(char));
-                symbols[nr_symbols - 1] = r->states[i]->transitions[j]->symbol;
+                symbols[nr_symbols - 1] =
+                    r->states[state_nr]->transitions[transition_nr]->symbol;
             }
         }
     }
+    {
+        // initialize the stack
+        int start_state_nr = 0;
+        stack_push(s, &start_state_nr);
 
-    // initialize the stack
-    int start_state = 0;
-    stack_push(s, &start_state);
+        // initialize the state structures
+        vector* start_state_set = new_vector(sizeof(int), NULL);
+        vector_push(start_state_set, &start_state_nr);
+        vector_push(state_sets, &start_state_set);
 
-    // initialize the state structures
-    state_sets = malloc(sizeof(int*));
-    state_sets[0] = malloc(sizeof(int));
-    state_sets[0][0] = 0;
-    nr_states = malloc(sizeof(int));
-    nr_states[0] = 1;
-    nr_state_sets++;
-    states = malloc(sizeof(state*));
-    states[0] = new_state(0, sb_none,
-                          (r->states[0]->type == st_start_end) ? st_start_end
-                                                               : st_start);
+        nr_state_sets++;
+
+        state* state_0 = new_state(0, sb_none, r->states[0]->type);
+        state_0->behaviour = r->states[0]->behaviour;
+        vector_push(states, &state_0);
+    }
 
     // process all states on the stack
+    // state_pos is an index into the states vector
     int state_pos;
     while (stack_pop(s, &state_pos)) {
         // iterate over symbols
-        for (int i = 0; i < nr_symbols; i++) {
+        for (int symbol_iterator = 0; symbol_iterator < nr_symbols;
+             symbol_iterator++) {
             int end_state_marker = 0;
-            char symbol = symbols[i];
+            char symbol = symbols[symbol_iterator];
 
             // accumulate all possible next states
             int* next_states = NULL;
             int nr_next_states = 0;
 
+            vector* current_state_set;
+            vector_get_at(state_sets, state_pos, &current_state_set);
+            vector_reset_iterator(current_state_set);
+            int state_nr;
+
             // iterate over all old states that belong to the current combined
             // state
-            for (int j = 0; j < nr_states[state_pos]; j++) {
-                int state_nr = state_sets[state_pos][j];
-
+            while (vector_next(current_state_set, &state_nr)) {
                 // find all next states with the current symbol
-                for (int k = 0; k < r->states[state_nr]->nr_transitions; k++) {
-                    if (r->states[state_nr]->transitions[k]->symbol == symbol) {
+                for (int transition_iterator = 0;
+                     transition_iterator < r->states[state_nr]->nr_transitions;
+                     transition_iterator++) {
+                    if (r->states[state_nr]
+                                ->transitions[transition_iterator]
+                                ->symbol == symbol &&
+                        r->states[state_nr]
+                                ->transitions[transition_iterator]
+                                ->status == ts_active) {
                         int already_there = 0;
                         // check if the next_state is already contained in
                         // next_states
-                        for (int l = 0; l < nr_next_states; l++) {
+                        for (int next_states_iterator = 0;
+                             next_states_iterator < nr_next_states;
+                             next_states_iterator++) {
                             if (r->states[state_nr]
-                                    ->transitions[k]
-                                    ->next_state == next_states[l]) {
+                                    ->transitions[transition_iterator]
+                                    ->next_state ==
+                                next_states[next_states_iterator]) {
                                 already_there = 1;
                                 break;
                             }
@@ -869,16 +890,18 @@ static int make_deterministic(regex* r) {
                             next_states = realloc(
                                 next_states, ++nr_next_states * sizeof(int));
                             next_states[nr_next_states - 1] =
-                                r->states[state_nr]->transitions[k]->next_state;
+                                r->states[state_nr]
+                                    ->transitions[transition_iterator]
+                                    ->next_state;
 
                             // check if it is an end state -> must be marked in
                             // the new state
                             if (r->states[r->states[state_nr]
-                                              ->transitions[k]
+                                              ->transitions[transition_iterator]
                                               ->next_state]
                                         ->type == st_end ||
                                 r->states[r->states[state_nr]
-                                              ->transitions[k]
+                                              ->transitions[transition_iterator]
                                               ->next_state]
                                         ->type == st_start_end) {
                                 end_state_marker = 1;
@@ -899,71 +922,110 @@ static int make_deterministic(regex* r) {
             int exists = -1;
 
             for (int j = 0; j < nr_state_sets; j++) {
-                if (nr_states[j] == nr_next_states) {
+                vector* temp_state_set;
+                vector_get_at(state_sets, j, &temp_state_set);
+                int nr_states_comp = temp_state_set->size;
+                vector* state_set_comp;
+                vector_get_at(state_sets, j, &state_set_comp);
+                if (nr_states_comp == nr_next_states) {
                     exists = j;
                     for (int k = 0; k < nr_next_states; k++) {
-                        if (next_states[k] != state_sets[j][k]) {
+                        int state_comp;
+                        vector_get_at(state_set_comp, k, &state_comp);
+                        if (next_states[k] != state_comp) {
                             exists = -1;
                             break;
                         }
                     }
                     if (exists > -1) {
-                        break;
+                        break; // found the state
                     }
                 }
             }
 
             // state is new and needs to be created
             if (exists < 0) {
+                // calculate the new state's behaviour
+                // if all next_states are sb_none or sb_lazy, it is sb_lazy
+                // as soon as one is sb_greedy, it is sb_greedy
+                int lazy = 0;
+                int greedy = 0;
+
                 // save the state with its partial states and create the
-                // corresponding transition
-                state_sets =
-                    realloc(state_sets, ++nr_state_sets * (sizeof(int*)));
-                state_sets[nr_state_sets - 1] =
-                    malloc(nr_next_states * sizeof(int));
-                for (int j = 0; j < nr_next_states; j++) {
-                    state_sets[nr_state_sets - 1][j] = next_states[j];
+                // corresponding transition to it from the current state
+                // transform next_states into a vector
+                vector* v_next_states = new_vector(sizeof(int), NULL);
+                for (int next_states_iterator = 0;
+                     next_states_iterator < nr_next_states;
+                     next_states_iterator++) {
+                    vector_push(v_next_states,
+                                &next_states[next_states_iterator]);
+                    if (r->states[next_states[next_states_iterator]]
+                            ->behaviour == sb_lazy) {
+                        lazy = 1;
+                    } else if (r->states[next_states[next_states_iterator]]
+                                   ->behaviour == sb_greedy) {
+                        greedy = 1;
+                    }
                 }
-                nr_states = realloc(nr_states, nr_state_sets * sizeof(int));
-                nr_states[nr_state_sets - 1] = nr_next_states;
-                states = realloc(states, nr_state_sets * sizeof(state));
+                vector_push(state_sets, &v_next_states);
 
-                states[nr_state_sets - 1] = new_state(
+
+                state* created_state = new_state(
                     0, sb_none, ((end_state_marker == 1) ? st_end : st_middle));
+                created_state->behaviour =
+                    ((lazy && greedy)
+                         ? sb_greedy
+                         : (lazy) ? sb_lazy : (greedy) ? sb_greedy : sb_none);
 
-                exists = nr_state_sets - 1;
+                vector_push(states, &created_state);
+
+                // set exists to the newly created state
+                // if no state was created, it already points to the correct one
+                exists = ++(nr_state_sets)-1;
 
                 // push the new state to the stack so it will be processed
                 stack_push(s, &exists);
             }
 
             // now the current state can be linked to the created next_state
-            states[state_pos]->transitions = realloc(
-                states[state_pos]->transitions,
-                ++(states[state_pos]->nr_transitions) * sizeof(transition*));
-            states[state_pos]
-                ->transitions[states[state_pos]->nr_transitions - 1] =
+            state* current_state;
+            vector_get_at(states, state_pos, &current_state);
+            current_state->transitions = realloc(
+                current_state->transitions,
+                ++(current_state->nr_transitions) * sizeof(transition*));
+            current_state->transitions[current_state->nr_transitions - 1] =
                 new_transition(ts_active, symbol, exists);
+            vector_set_at(states, state_pos, &current_state);
 
             free(next_states);
         }
     }
 
-    // replace the old regex object with the new one
-    for (int i = 0; i < r->nr_states; i++) {
-        free_state(r->states[i]);
-        free(r->states[i]);
+    // empty the old regex object
+    for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
+        free_state(r->states[state_nr]);
+        free(r->states[state_nr]);
     }
     free(r->states);
-    r->states = states;
+
+    // replace it with the new one
+    state** state_array = malloc(states->size * sizeof(state*));
+    for (int state_nr = 0; state_nr < states->size; state_nr++) {
+        vector_get_at(states, state_nr, &state_array[state_nr]);
+    }
+    delete_vector(&states);
+
+    r->states = state_array;
     r->nr_states = nr_state_sets;
 
     // free resources
-    free(nr_states);
     for (int i = 0; i < nr_state_sets; i++) {
-        free(state_sets[i]);
+        vector* state_set;
+        vector_get_at(state_sets, i, &state_set);
+        delete_vector(&state_set);
     }
-    free(state_sets);
+    delete_vector(&state_sets);
     delete_stack(&s);
     free(symbols);
 

@@ -101,7 +101,8 @@ regex* new_empty_regex();
 regex* copy_regex(regex* r);
 
 // returns a malloced state instance with all elements set to 0
-state* new_state(int nr_transitions, state_behaviour behaviour, int type);
+state*
+new_state(int nr_transitions, state_behaviour behaviour, state_type type);
 
 // returns a malloced transition
 transition*

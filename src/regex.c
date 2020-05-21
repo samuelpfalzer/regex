@@ -36,6 +36,7 @@ regex* new_empty_regex() {
     r->line_start = 0;
     r->line_end = 0;
     r->nr_states = 1;
+    r->states = NULL;
     r->states = malloc(sizeof(state*));
     r->states[0] = new_state(0, sb_none, st_start_end);
     return r;
@@ -62,11 +63,13 @@ void free_regex(regex** r) {
 //========== STATE FUNCTIONS ==========
 
 
-state* new_state(int nr_transitions, state_behaviour behaviour, int type) {
+state*
+new_state(int nr_transitions, state_behaviour behaviour, state_type type) {
     state* s = malloc(sizeof(state));
     s->nr_transitions = nr_transitions;
     s->behaviour = behaviour;
     s->type = type;
+    s->transitions = NULL;
     s->transitions = malloc(s->nr_transitions * sizeof(transition*));
     return s;
 }
@@ -138,6 +141,9 @@ void regex_concat(regex* a, regex* b) {
 
 
 void regex_alternative(regex* a, regex* b) {
+    print_regex(a);
+    print_regex(b);
+
     // expand a to fit in b and the new start node
     a->states = realloc(a->states,
                         ((++(a->nr_states)) + b->nr_states) * sizeof(state*));
@@ -159,9 +165,17 @@ void regex_alternative(regex* a, regex* b) {
         a->states[a->nr_states + i] = b->states[i];
     }
 
+    // check if one of the old start states was also an end state
+    // to preserve this information
+    state_type start_state_type = st_start;
+    if (a->states[1]->type == st_start_end ||
+        a->states[a->nr_states]->type == st_start_end) {
+        start_state_type = st_start_end;
+    }
+
     // create the new start state, link it to the old start state and mark
     // that as deprecated
-    a->states[0] = new_state(2, sb_none, st_start);
+    a->states[0] = new_state(2, sb_none, start_state_type);
     a->states[0]->transitions[0] = new_transition(ts_epsilon, 0, 1);
     a->states[1]->type = st_middle;
 
@@ -173,6 +187,8 @@ void regex_alternative(regex* a, regex* b) {
     a->nr_states += b->nr_states;
     b->nr_states = 0;
     free_regex(&b);
+
+    print_regex(a);
 }
 
 
@@ -200,7 +216,7 @@ void regex_optional(regex* a) {
 
 
 void print_regex(regex* r) {
-    printf("REGEX - nr_states: %d\n", r->nr_states);
+    printf("\n\nREGEX - nr_states: %d\n", r->nr_states);
     for (int i = 0; i < r->nr_states; i++) {
         state* s = r->states[i];
         printf(" - %d: type ", i);
