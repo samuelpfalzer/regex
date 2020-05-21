@@ -21,31 +21,54 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
     int pos = 0;
     int state = 0;
     int match_start = -1;
+    int checkpoint = -1;
 
-    // TODO: check if the input must start at the beginning of the line
+    if (r->states[0]->type == st_start_end &&
+        r->states[0]->behaviour == sb_lazy) {
+        *location = 0;
+        *length = 0;
+        return 1;
+    }
 
+    // TODO: check start_line + end_line attributes
+    // but first move them from regex to states
+    printf("\n\nmatching:\n");
     // try to match until there is no more input
     while (input[pos] != '\0') {
+        printf("position %d: %c (state %d)\n", pos, input[pos], state);
         int temp_state = next_state(r, state, input[pos]);
+        printf("-> state %d\n", temp_state);
+
+        // accepting state
+        if (r->states[temp_state]->type == st_end ||
+            r->states[temp_state]->type == st_start_end) {
+            if (match_start < 0) {
+                match_start = pos;
+            }
+
+            // greedy -> try to continue, even though in an end state
+            if (r->states[state]->behaviour == sb_greedy) {
+                checkpoint = pos;
+                printf("checkpoint at %d\n", checkpoint);
+            } else {
+                *location = match_start;
+                *length = pos + 1 - match_start;
+                return 1;
+            }
+        }
 
         // no possible transition -> try again
         if (temp_state < 0) {
+            if (checkpoint >= 0) {
+                *location = match_start;
+                *length = checkpoint + 1 - match_start;
+                return 1;
+            }
             match_start = -1;
             state = 0;
         }
 
-        // accepting state
-        else if (r->states[temp_state]->type == st_end ||
-                 r->states[temp_state]->type == st_start_end) {
-            if (match_start < 0) {
-                match_start = pos;
-            }
-            *location = match_start;
-            *length = pos + 1 - match_start;
-            return 1;
-        }
-
-        // made transition to a normal state
+        // made transition to a possible state
         else {
             if (match_start < 0) {
                 match_start = pos;
@@ -54,6 +77,11 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
         }
 
         pos++;
+    }
+    if (checkpoint >= 0) {
+        *location = match_start;
+        *length = checkpoint + 1 - match_start;
+        return 1;
     }
     return 0;
 }

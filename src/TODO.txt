@@ -1,0 +1,5 @@
+- implement inverted character classes
+- implement named character classes like [:alnum:]
+- implement matching functions
+- move the line_start and line_end attributes into the states to allow expressions like (^abc$)|(ab$)
+- replace vector-array conversion by simply using the pointer + size of the array

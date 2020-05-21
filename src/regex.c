@@ -217,6 +217,12 @@ void regex_optional(regex* a) {
 
 void print_regex(regex* r) {
     printf("\n\nREGEX - nr_states: %d\n", r->nr_states);
+    if (r->line_start) {
+        printf("line_start=true\n");
+    }
+    if (r->line_end) {
+        printf("line_end=true\n");
+    }
     for (int i = 0; i < r->nr_states; i++) {
         state* s = r->states[i];
         printf(" - %d: type ", i);
