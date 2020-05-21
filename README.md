@@ -1,2 +1,2 @@
 # regex
-A regular expression matching engine based on finite automatons written in C
+A regular expression matching engine based on finite automata written in C
