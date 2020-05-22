@@ -34,8 +34,8 @@ int success = regex_match_first(r, s, &position, &length);
 | **[a-zA-F3-7]** | match all characters in the given ranges from a to z, A to F and 3 to 7. Can be combined with non-range classes and works for both classes and inverted classes |
 | **.**           | match any character                                                                                                                                             |
 | **(...)**       | match the group inside the parentheses (all modifiers can be applied to a group)                                                                                |
-| **^**           | match the beginning of a line *(not yet implemented)*                                                                                                           |
-| **$**           | match the end of a line *(not yet implemented)*                                                                                                                 |
+| **^**           | match the beginning of a line                                                                                                                                   |
+| **$**           | match the end of a line                                                                                                                                         |
 | **\\}**         | match a literal **}** (applies for all control characters **()[]{}+-*?.**)                                                                                      |
 | **\\\\**        | match a literal **\\**                                                                                                                                          |
 
