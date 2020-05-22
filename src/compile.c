@@ -293,28 +293,37 @@ static int parse(regex** r, char* input) {
                 pos += 2;
 
                 // parse min number
-                while (input[pos] != ',') {
+                while (input[pos] != ',' && input[pos] != '}') {
                     if (input[pos] >= '0' && input[pos] <= '9') {
                         min = min * 10 + (input[pos++] - '0');
                     } else {
-                        ERROR("\nERROR: %c is no number and cannot specify a "
+                        ERROR("%c is no number and cannot specify a "
                               "range\n",
                               input[pos]);
                         return 0;
                     }
                 }
+                if (input[pos] == ',') {
+                    pos++;
+                }
 
-                pos++;
-
-                // read max number
-                while (input[pos] != '}') {
-                    if (input[pos] >= '0' && input[pos] <= '9') {
-                        max = max * 10 + (input[pos++] - '0');
-                    } else {
-                        ERROR("\nERROR: %c is no number and cannot specify a "
-                              "range\n",
-                              input[pos]);
-                        return 0;
+                if (input[pos] == '}') {
+                    max = min;
+                } else if (input[pos] == ',' && input[pos + 1] == '}') {
+                    max = min;
+                    pos++;
+                } else {
+                    // read max number
+                    while (input[pos] != '}') {
+                        if (input[pos] >= '0' && input[pos] <= '9') {
+                            max = max * 10 + (input[pos++] - '0');
+                        } else {
+                            ERROR(
+                                "\nERROR: %c is no number and cannot specify a "
+                                "range\n",
+                                input[pos]);
+                            return 0;
+                        }
                     }
                 }
 
