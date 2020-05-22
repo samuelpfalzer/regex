@@ -1,6 +1,7 @@
 #include "regex.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 
 //========== MATCHING ==========
@@ -23,6 +24,11 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
     int match_start = -1;
     int checkpoint = -1;
 
+    char* input_copy = malloc((strlen(input) + 2) * sizeof(char));
+    strcpy(input_copy, input);
+    input_copy[strlen(input)] = LINE_END;
+    input_copy[strlen(input) + 1] = 0;
+
     if (r->states[0]->type == st_start_end &&
         r->states[0]->behaviour == sb_lazy) {
         *location = 0;
@@ -30,13 +36,14 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
         return 1;
     }
 
-    // TODO: check start_line + end_line attributes
-    // but first move them from regex to states
+    // consume an artificially produced start of line symbol :)
+    state = next_state(r, state, LINE_START);
+
     DEBUG("matching:\n");
     // try to match until there is no more input
-    while (input[pos] != '\0') {
-        DEBUG("position %d: %c (state %d)\n", pos, input[pos], state);
-        int temp_state = next_state(r, state, input[pos]);
+    while (input_copy[pos] != '\0') {
+        DEBUG("position %d: %c (state %d)\n", pos, input_copy[pos], state);
+        int temp_state = next_state(r, state, input_copy[pos]);
         DEBUG("-> state %d\n", temp_state);
 
         // no possible transition -> try again
@@ -86,6 +93,9 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
         *length = checkpoint + 1 - match_start;
         return 1;
     }
+
+    free(input_copy);
+
     return 0;
 }
 
