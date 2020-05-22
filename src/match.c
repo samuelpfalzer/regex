@@ -38,8 +38,19 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
         DEBUG("position %d: %c (state %d)\n", pos, input[pos], state);
         int temp_state = next_state(r, state, input[pos]);
         DEBUG("-> state %d\n", temp_state);
-        if (temp_state == -1) {
-            return 0;
+
+        // no possible transition -> try again
+        if (temp_state < 0) {
+            if (checkpoint >= 0) {
+                *location = match_start;
+                *length = checkpoint + 1 - match_start;
+                return 1;
+            } else {
+                match_start = -1;
+                state = 0;
+                pos++;
+                continue;
+            }
         }
 
         // accepting state
@@ -58,17 +69,6 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
                 *length = pos + 1 - match_start;
                 return 1;
             }
-        }
-
-        // no possible transition -> try again
-        if (temp_state < 0) {
-            if (checkpoint >= 0) {
-                *location = match_start;
-                *length = checkpoint + 1 - match_start;
-                return 1;
-            }
-            match_start = -1;
-            state = 0;
         }
 
         // made transition to a possible state

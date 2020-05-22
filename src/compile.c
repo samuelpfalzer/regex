@@ -7,7 +7,7 @@
 #include <string.h>
 
 
-//========== DEFINITIONS ==========
+// CONSTANTS
 
 const char* REGULAR_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
                               "WXYZ0123456789\"\'#/&=@!%_: \t<>";
@@ -16,7 +16,7 @@ const char* ALL_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV<>"
                           "WXYZ0123456789\"\'#/&=@!%_: \t-^$()[]{}\\*+?.|";
 
 
-//========== PRIVATE FUNCTION DECLARATIONS ==========
+// PRIVATE FUNCTION DECLARATIONS
 
 
 // compiles the input string to a regex structure -> 1 on success, else 0
@@ -26,8 +26,11 @@ static int remove_epsilon_transitions(regex* r);
 
 static int nfa_to_dfa(regex* r);
 
+// remove every occurrence of all letters contained in b from a
+static int string_subtract(vector* a, vector* b);
 
-//========== COMPILE FUNCTION ==========
+
+// COMPILE FUNCTION
 
 // TODO: free r if compilation fails!
 
@@ -53,7 +56,7 @@ int regex_compile(regex** r, char* input) {
 }
 
 
-//========== PARSE FUNCTION ==========
+// PARSE FUNCTION
 
 
 static int parse(regex** r, char* input) {
@@ -82,8 +85,8 @@ static int parse(regex** r, char* input) {
 
 
     while (!in(input[pos], "\n\0", 2)) {
-        DEBUG("start of parse loop: level %d, pos %d (char %c)\n",
-               level, pos, input[pos]);
+        DEBUG("start of parse loop: level %d, pos %d (char %c)\n", level, pos,
+              input[pos]);
 
         // alphanumerical character | end of block | any | escaped character
         if (in(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS)) ||
@@ -93,8 +96,7 @@ static int parse(regex** r, char* input) {
             case '\\': // escaped character
                 if (!in(input[pos + 1], ESCAPED_SYMBOLS,
                         strlen(ESCAPED_SYMBOLS))) {
-                    ERROR("invalid escape sequence \\%c\n",
-                           input[pos + 1]);
+                    ERROR("invalid escape sequence \\%c\n", input[pos + 1]);
                     return 0;
                 } else {
                     current_regex = new_single_regex(input[++pos]);
@@ -154,6 +156,7 @@ static int parse(regex** r, char* input) {
             {
                 int inverted = 0; // TODO: implement
                 if (input[pos + 1] == '^') {
+                    DEBUG("inverted class\n");
                     inverted = 1;
                     pos++;
                 }
@@ -223,6 +226,26 @@ static int parse(regex** r, char* input) {
                     }
                 }
 
+                // if the class is inverted, subtract it from ALL_SYMBOLS
+                if (inverted) {
+                    char* inverted_symbols = malloc(strlen(ALL_SYMBOLS) + 1);
+                    inverted_symbols[strlen(ALL_SYMBOLS) - 1] = 0;
+                    for (int i = 0; i < strlen(ALL_SYMBOLS); i++) {
+                        inverted_symbols[i] = ALL_SYMBOLS[i];
+                    }
+                    vector* v_inverted_symbols = new_vector_from_array(
+                        sizeof(char), NULL, &inverted_symbols,
+                        strlen(inverted_symbols));
+                    vector* v_symbols = new_vector_from_array(
+                        sizeof(char), NULL, &symbols, strlen(symbols));
+                    string_subtract(v_inverted_symbols, v_symbols);
+                    vector_extract(v_symbols, &symbols);
+                    vector_extract(v_inverted_symbols, &inverted_symbols);
+                    free(symbols);
+                    symbols = inverted_symbols;
+                    inverted_symbols = NULL;
+                }
+
                 // like with '.', only 2 states are needed for this part
                 // just iterate over the valid symbol string and create a
                 // transition for each symbol
@@ -247,7 +270,7 @@ static int parse(regex** r, char* input) {
             }
 
 
-            //===== MODIFIERS =====
+            // MODIFIERS
             switch (input[pos + 1]) {
             // repetition range a{2,5}
             case '{': {
@@ -261,8 +284,8 @@ static int parse(regex** r, char* input) {
                         min = min * 10 + (input[pos++] - '0');
                     } else {
                         ERROR("\nERROR: %c is no number and cannot specify a "
-                               "range\n",
-                               input[pos]);
+                              "range\n",
+                              input[pos]);
                         return 0;
                     }
                 }
@@ -275,8 +298,8 @@ static int parse(regex** r, char* input) {
                         max = max * 10 + (input[pos++] - '0');
                     } else {
                         ERROR("\nERROR: %c is no number and cannot specify a "
-                               "range\n",
-                               input[pos]);
+                              "range\n",
+                              input[pos]);
                         return 0;
                     }
                 }
@@ -393,7 +416,7 @@ static int parse(regex** r, char* input) {
             // must be the first symbol in a regex string
             if (pos > 0) {
                 ERROR("^ can only be used as the first symbol of a "
-                       "regex string\n");
+                      "regex string\n");
                 return 0;
             } else {
                 pos++;
@@ -408,7 +431,7 @@ static int parse(regex** r, char* input) {
             // must be the last symbol in a regex string
             if (!in(input[pos + 1], "\n\0", 2)) {
                 ERROR("$ can only be used as the last symbol of a "
-                       "regex string\n");
+                      "regex string\n");
                 return 0;
             } else {
                 if (level == 0) {
@@ -496,7 +519,7 @@ static int parse(regex** r, char* input) {
     if (level || alternative) {
         if (level) {
             ERROR("%i blocks are not closed at the end of your expression\n",
-                   level);
+                  level);
             return 0;
         } else {
             ERROR("alternative not satisfied\n");
@@ -532,7 +555,7 @@ static int parse(regex** r, char* input) {
     }
 }
 
-//========== EPSILON FUNCTION ==========
+// EPSILON FUNCTION
 
 
 static int remove_epsilon_transitions(regex* r) {
@@ -779,7 +802,7 @@ static int remove_epsilon_transitions(regex* r) {
 }
 
 
-//========== NFA-DFA-CONVERSION ==========
+// NFA-DFA-CONVERSION
 
 
 static int nfa_to_dfa(regex* r) {
@@ -1015,4 +1038,21 @@ static int nfa_to_dfa(regex* r) {
     free(symbols);
 
     return 1;
+}
+
+
+static int string_subtract(vector* a, vector* b) {
+    vector_reset_iterator(b);
+    char comp_char;
+    while (vector_next(b, &comp_char)) {
+        vector_reset_iterator(a);
+        char current_char;
+        while (vector_next(a, &current_char)) {
+            if (current_char == comp_char && current_char != 0) {
+                a->iterator--;
+                vector_remove(a);
+                vector_next(a, &current_char);
+            }
+        }
+    }
 }
