@@ -101,9 +101,8 @@ static int parse(regex** r, char* input) {
                level, pos, input[pos]);
 
         // alphanumerical character | end of block | any | escaped character
-        if ((in(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS))) ||
-            (input[pos] == '[') || (input[pos] == '.') ||
-            (input[pos] == ')' && level > 0) || (input[pos] == '\\')) {
+        if (in(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS)) ||
+            in(input[pos], "[.)\\", 4)) {
 
             switch (input[pos]) {
             case '\\': // escaped character
@@ -264,9 +263,9 @@ static int parse(regex** r, char* input) {
 
 
             //===== MODIFIERS =====
-
+            switch (input[pos + 1]) {
             // repetition range a{2,5}
-            if (input[pos + 1] == '{') {
+            case '{': {
                 int min = 0;
                 int max = 0;
                 pos += 2;
@@ -304,7 +303,8 @@ static int parse(regex** r, char* input) {
                     return 0;
                 }
 
-                // create max-1 copies to be concatenated behind current_regex
+                // create max-1 copies to be concatenated behind
+                // current_regex
                 temp_vector = new_vector(sizeof(regex*), NULL);
                 for (int i = 0; i < (max - 1); i++) {
                     temp_regex = copy_regex(current_regex);
@@ -336,10 +336,10 @@ static int parse(regex** r, char* input) {
                     regex_optional(current_regex);
                 }
                 printf("DEBUG: range modifier\n");
-            }
+            } break;
 
             // zero or one repetition a?
-            else if (input[pos + 1] == '?') {
+            case '?': {
                 regex_optional(current_regex);
 
                 // a??
@@ -355,10 +355,10 @@ static int parse(regex** r, char* input) {
                 }
 
                 printf("DEBUG: ? modifier\n");
-            }
+            } break;
 
             // zero to infty repetitions a* or a*?
-            else if (input[pos + 1] == '*') {
+            case '*': {
                 regex_repeat(current_regex);
 
                 // a*?
@@ -373,10 +373,10 @@ static int parse(regex** r, char* input) {
                     pos += 2;
                 }
                 printf("DEBUG: * modifier\n");
-            }
+            } break;
 
             // one to infty repetitions a+ or a+?
-            else if (input[pos + 1] == '+') {
+            case '+': {
                 temp_regex = copy_regex(current_regex);
                 regex_repeat(temp_regex);
                 regex_concat(current_regex, temp_regex);
@@ -393,12 +393,13 @@ static int parse(regex** r, char* input) {
                     pos += 2;
                 }
                 printf("DEBUG: + modifier\n");
-            }
+            } break;
 
             // no modifiers
-            else {
+            default:
                 pos++;
                 printf("DEBUG: no modifiers\n");
+                break;
             }
         }
 

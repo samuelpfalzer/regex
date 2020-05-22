@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
         // getchar();
         return 0;
     } else {
-        printf("usage: ./bin/main 'regular expression' 'string to match "
+        printf("usage: ./bin/example 'regular expression' 'string to match "
                "against'\n");
     }
     return 1;

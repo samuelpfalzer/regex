@@ -10,8 +10,20 @@ vector* new_vector(int type_size, void (*free_func)(void*)) {
     vector* v = (vector*)malloc(sizeof(vector));
     v->type_size = type_size;
     v->size = 0;
+    v->iterator = 0;
     v->content = NULL;
     v->free_func = free_func;
+    return v;
+}
+
+vector* new_vector_from_array(int type_size,
+                              void (*free_func)(void*),
+                              void** array,
+                              int size) {
+    vector* v = new_vector(type_size, free_func);
+    v->size = size;
+    v->content = *array;
+    *array = NULL;
     return v;
 }
 
@@ -187,6 +199,18 @@ int vector_remove(vector* v) {
 
     vector_shrink(v);
     return 1;
+}
+
+
+//===== extraction
+
+
+int vector_extract(vector* v, void** array) {
+    int size = v->size;
+    v->size = 0;
+    *array = v->content;
+    v->content = NULL;
+    return size;
 }
 
 
