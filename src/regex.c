@@ -260,8 +260,16 @@ void print_regex(regex* r) {
                 printf("   - epsilon -> %d\n", s->transitions[j]->next_state);
                 break;
             case ts_active:
-                printf("   - %c -> %d\n", s->transitions[j]->symbol,
-                       s->transitions[j]->next_state);
+                if (s->transitions[j]->symbol == LINE_START) {
+                    printf("   - line start -> %d\n",
+                           s->transitions[j]->next_state);
+                } else if (s->transitions[j]->symbol == LINE_END) {
+                    printf("   - line end -> %d\n",
+                           s->transitions[j]->next_state);
+                } else {
+                    printf("   - %c -> %d\n", s->transitions[j]->symbol,
+                           s->transitions[j]->next_state);
+                }
                 break;
             default:
                 printf("   - dead\n");

@@ -42,6 +42,8 @@ int regex_compile(regex** r, char* input) {
         return 0;
     };
 
+    print_regex(*r);
+
     if (!remove_epsilon_transitions(*r)) {
         ERROR("remove_epsilon_transitions failed\n");
         return 0;
@@ -66,19 +68,31 @@ static int parse(regex** r, char* input) {
     vector* temp_vector = NULL;
     regex* temp_regex = NULL;
     regex* temp_regex2 = NULL;
-    int temp_int;
+    int temp_int = 1;
 
     vector* elements_on_level = new_vector(sizeof(int), NULL);
-    vector_push(elements_on_level, &level);
+    vector_push(elements_on_level, &temp_int);
 
     int pos = 0;
 
     vector* alternative_on_level = new_vector(sizeof(int), NULL);
     vector_push(alternative_on_level, &level);
 
+    // initialize the regex objects vector with an optional start of line
+    // (required to allow other start of line symbols inside the regex)
+    // the epsilon-nfa-dfa transformation handles the multiple start of lines
+    // this causes unreachable paths inside the final automaton (multiple start
+    // of lines chained, which is impossible to happen), but i found no other
+    // way of allowing start of line and end of line symbols to be used
     vector* regex_objects = new_vector(sizeof(vector*), NULL);
     temp_vector = new_vector(sizeof(regex*), NULL);
+    temp_regex = new_single_regex(LINE_START);
+    regex_optional(temp_regex);
+    vector_push(temp_vector, &temp_regex);
     vector_push(regex_objects, &temp_vector);
+
+    temp_regex = NULL;
+    temp_vector = NULL;
 
     int line_start = 0;
     int line_end = 0;
@@ -413,36 +427,18 @@ static int parse(regex** r, char* input) {
 
         // ^
         else if (input[pos] == '^') {
-            // must be the first symbol in a regex string
-            if (pos > 0) {
-                ERROR("^ can only be used as the first symbol of a "
-                      "regex string\n");
-                return 0;
-            } else {
-                pos++;
-                line_start = 1;
-                DEBUG("line start\n");
-                continue;
-            }
+            pos++;
+            line_start = 1;
+            DEBUG("line start\n");
+            current_regex = new_single_regex(LINE_START);
         }
 
         // $
         else if (input[pos] == '$') {
-            // must be the last symbol in a regex string
-            if (!in(input[pos + 1], "\n\0", 2)) {
-                ERROR("$ can only be used as the last symbol of a "
-                      "regex string\n");
-                return 0;
-            } else {
-                if (level == 0) {
-                    pos++;
-                    line_end = 1;
-                    DEBUG("line end\n");
-                } else {
-                    ERROR("%d () blocks not closed\n", level);
-                    return 0;
-                }
-            }
+            pos++;
+            line_end = 1;
+            DEBUG("line end\n");
+            current_regex = new_single_regex(LINE_END);
         }
 
         // block start
@@ -546,6 +542,13 @@ static int parse(regex** r, char* input) {
         delete_vector(&alternative_on_level);
 
         delete_vector(&regex_objects);
+
+        // concatenate an optional end of line transition behind the finished
+        // regex object for explanation see above where the optional start of
+        // line transition is put at the beginning of the automaton :)
+        temp_regex = new_single_regex(LINE_END);
+        regex_optional(temp_regex);
+        regex_concat(current_regex, temp_regex);
 
         *r = current_regex;
 

@@ -33,6 +33,10 @@ supported regular expression subset:
 - \\ -> match a literal \
 */
 
+// needed to differ between ^ and the start of a line
+#define LINE_START 2
+#define LINE_END 3
+
 
 //========== TYPE DEFINITIONS ==========
 
