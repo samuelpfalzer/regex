@@ -32,12 +32,15 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
 
     // TODO: check start_line + end_line attributes
     // but first move them from regex to states
-    printf("\n\nmatching:\n");
+    DEBUG("matching:\n");
     // try to match until there is no more input
     while (input[pos] != '\0') {
-        printf("position %d: %c (state %d)\n", pos, input[pos], state);
+        DEBUG("position %d: %c (state %d)\n", pos, input[pos], state);
         int temp_state = next_state(r, state, input[pos]);
-        printf("-> state %d\n", temp_state);
+        DEBUG("-> state %d\n", temp_state);
+        if (temp_state == -1) {
+            return 0;
+        }
 
         // accepting state
         if (r->states[temp_state]->type == st_end ||
@@ -49,7 +52,7 @@ int regex_match_first(regex* r, char* input, int* location, int* length) {
             // greedy -> try to continue, even though in an end state
             if (r->states[state]->behaviour == sb_greedy) {
                 checkpoint = pos;
-                printf("checkpoint at %d\n", checkpoint);
+                DEBUG("checkpoint at %d\n", checkpoint);
             } else {
                 *location = match_start;
                 *length = pos + 1 - match_start;

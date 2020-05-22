@@ -1,14 +1,3 @@
-// clang-format off
-#define DEBUG_MODE 1
-#if DEBUG_MODE > 0
-#define DEBUG(...) fprintf(stdout, ...);
-#else
-#define DEBUG(...) while(0);
-#endif
-#define ERROR(...) fprintf(stderr, ...);
-// clang-format on
-
-
 #include "helper_functions.h"
 #include "regex.h"
 #include "stack.h"
@@ -46,21 +35,17 @@ int regex_compile(regex** r, char* input) {
     free_regex(r);
 
     if (!parse(r, input)) {
-        printf("ERROR: parse failed\n");
+        ERROR("parsing failed\n");
         return 0;
     };
-
-    print_regex(*r);
 
     if (!remove_epsilon_transitions(*r)) {
-        printf("ERROR: remove_epsilon_transitions failed\n");
+        ERROR("remove_epsilon_transitions failed\n");
         return 0;
     };
 
-    print_regex(*r);
-
     if (!nfa_to_dfa(*r)) {
-        printf("ERROR: nfa_to_dfa failed\n");
+        ERROR("nfa_to_dfa failed\n");
         return 0;
     };
 
@@ -97,7 +82,7 @@ static int parse(regex** r, char* input) {
 
 
     while (!in(input[pos], "\n\0", 2)) {
-        printf("DEBUG: start of parse loop: level %d, pos %d (char %c)\n",
+        DEBUG("start of parse loop: level %d, pos %d (char %c)\n",
                level, pos, input[pos]);
 
         // alphanumerical character | end of block | any | escaped character
@@ -108,12 +93,12 @@ static int parse(regex** r, char* input) {
             case '\\': // escaped character
                 if (!in(input[pos + 1], ESCAPED_SYMBOLS,
                         strlen(ESCAPED_SYMBOLS))) {
-                    printf("ERROR: invalid escape sequence \\%c\n",
+                    ERROR("invalid escape sequence \\%c\n",
                            input[pos + 1]);
                     return 0;
                 } else {
                     current_regex = new_single_regex(input[++pos]);
-                    printf("DEBUG: escaped char\n");
+                    DEBUG("escaped char\n");
                 }
                 break;
 
@@ -122,14 +107,14 @@ static int parse(regex** r, char* input) {
                 int alternative_in_block;
                 vector_pop(alternative_on_level, &alternative_in_block);
                 if (alternative_in_block) {
-                    printf("ERROR: alternative not satisfied\n");
+                    ERROR("alternative not satisfied\n");
                     return 0;
                 }
 
                 int elements_in_block;
                 vector_pop(elements_on_level, &elements_in_block);
                 if (!elements_in_block) {
-                    printf("ERROR: empty block\n");
+                    ERROR("empty block\n");
                     return 0;
                 }
 
@@ -149,7 +134,7 @@ static int parse(regex** r, char* input) {
 
                 delete_vector(&block_merge_vector);
                 level--;
-                printf("DEBUG: block end\n");
+                DEBUG("block end\n");
                 break;
             }
             case '.': // any character
@@ -162,7 +147,7 @@ static int parse(regex** r, char* input) {
                         new_transition(ts_active, ALL_SYMBOLS[i], 1);
                 }
                 current_regex->states[0]->nr_transitions = strlen(ALL_SYMBOLS);
-                printf("DEBUG: any char\n");
+                DEBUG("any char\n");
                 break;
 
             case '[': // character class
@@ -174,7 +159,7 @@ static int parse(regex** r, char* input) {
                 }
 
                 if (input[++pos] == ']') {
-                    printf("\nERROR: empty class not allowed\n");
+                    ERROR("\nERROR: empty class not allowed\n");
                     return 0;
                 }
 
@@ -182,7 +167,7 @@ static int parse(regex** r, char* input) {
                 char* symbols = NULL;
 
                 while (input[pos] != ']') {
-                    printf("DEBUG: parsing class, symbol = %c\n", input[pos]);
+                    DEBUG("parsing class, symbol = %c\n", input[pos]);
                     if (in(input[pos], "\n\0", 2)) {
                         printf("\nERROR: class not closed");
                         return 0;
@@ -195,18 +180,18 @@ static int parse(regex** r, char* input) {
                         pos++;
                         symbols =
                             realloc(symbols, (++nr_symbols) * sizeof(char));
-                        printf("->  added %c to class", input[pos]);
+                        DEBUG("->  added %c to class", input[pos]);
                         symbols[nr_symbols - 1] = input[pos++];
                     }
 
                     // range
                     else if (input[pos + 1] == '-') {
                         if (in(input[pos + 2], "\n\0", 2)) {
-                            printf("\nERROR: class not closed");
+                            ERROR("\nERROR: class not closed");
                             return 0;
                         }
                         if (input[pos + 2] == ']') {
-                            printf("\nERROR: range must specify an end\n");
+                            ERROR("\nERROR: range must specify an end\n");
                             return 0;
                         } else if (!((input[pos] <= input[pos + 2]) &&
                                      ((input[pos] >= 'a' &&
@@ -215,7 +200,7 @@ static int parse(regex** r, char* input) {
                                        input[pos] <= 'Z') ||
                                       (input[pos] >= '0' &&
                                        input[pos] <= '9')))) {
-                            printf("\nERROR: invalid range\n");
+                            ERROR("\nERROR: invalid range\n");
                             return 0;
                         } else {
                             for (char i = input[pos]; i <= input[pos + 2];
@@ -252,12 +237,12 @@ static int parse(regex** r, char* input) {
                 current_regex->states[0]->nr_transitions = nr_symbols;
 
                 free(symbols);
-                printf("DEBUG: char class\n");
+                DEBUG("char class\n");
                 break;
             }
             default: // regular character
                 current_regex = new_single_regex(input[pos]);
-                printf("DEBUG: regular char\n");
+                DEBUG("regular char\n");
                 break;
             }
 
@@ -275,7 +260,7 @@ static int parse(regex** r, char* input) {
                     if (input[pos] >= '0' && input[pos] <= '9') {
                         min = min * 10 + (input[pos++] - '0');
                     } else {
-                        printf("\nERROR: %c is no number and cannot specify a "
+                        ERROR("\nERROR: %c is no number and cannot specify a "
                                "range\n",
                                input[pos]);
                         return 0;
@@ -289,7 +274,7 @@ static int parse(regex** r, char* input) {
                     if (input[pos] >= '0' && input[pos] <= '9') {
                         max = max * 10 + (input[pos++] - '0');
                     } else {
-                        printf("\nERROR: %c is no number and cannot specify a "
+                        ERROR("\nERROR: %c is no number and cannot specify a "
                                "range\n",
                                input[pos]);
                         return 0;
@@ -299,7 +284,7 @@ static int parse(regex** r, char* input) {
                 pos++;
 
                 if (min < 0 || max < 1 || min > max) {
-                    printf("\nERROR: invalid range\n");
+                    ERROR("\nERROR: invalid range\n");
                     return 0;
                 }
 
@@ -335,7 +320,7 @@ static int parse(regex** r, char* input) {
                 if (min == 0) {
                     regex_optional(current_regex);
                 }
-                printf("DEBUG: range modifier\n");
+                DEBUG("range modifier\n");
             } break;
 
             // zero or one repetition a?
@@ -354,7 +339,7 @@ static int parse(regex** r, char* input) {
                     pos += 2;
                 }
 
-                printf("DEBUG: ? modifier\n");
+                DEBUG("? modifier\n");
             } break;
 
             // zero to infty repetitions a* or a*?
@@ -372,7 +357,7 @@ static int parse(regex** r, char* input) {
                     regex_make_greedy(current_regex);
                     pos += 2;
                 }
-                printf("DEBUG: * modifier\n");
+                DEBUG("* modifier\n");
             } break;
 
             // one to infty repetitions a+ or a+?
@@ -392,13 +377,13 @@ static int parse(regex** r, char* input) {
                     regex_make_greedy(current_regex);
                     pos += 2;
                 }
-                printf("DEBUG: + modifier\n");
+                DEBUG("+ modifier\n");
             } break;
 
             // no modifiers
             default:
                 pos++;
-                printf("DEBUG: no modifiers\n");
+                DEBUG("no modifiers\n");
                 break;
             }
         }
@@ -407,13 +392,13 @@ static int parse(regex** r, char* input) {
         else if (input[pos] == '^') {
             // must be the first symbol in a regex string
             if (pos > 0) {
-                printf("ERROR: ^ can only be used as the first symbol of a "
+                ERROR("^ can only be used as the first symbol of a "
                        "regex string\n");
                 return 0;
             } else {
                 pos++;
                 line_start = 1;
-                printf("DEBUG: line start\n");
+                DEBUG("line start\n");
                 continue;
             }
         }
@@ -422,16 +407,16 @@ static int parse(regex** r, char* input) {
         else if (input[pos] == '$') {
             // must be the last symbol in a regex string
             if (!in(input[pos + 1], "\n\0", 2)) {
-                printf("ERROR: $ can only be used as the last symbol of a "
+                ERROR("$ can only be used as the last symbol of a "
                        "regex string\n");
                 return 0;
             } else {
                 if (level == 0) {
                     pos++;
                     line_end = 1;
-                    printf("DEBUG: line end\n");
+                    DEBUG("line end\n");
                 } else {
-                    printf("ERROR: %d () blocks not closed\n", level);
+                    ERROR("%d () blocks not closed\n", level);
                     return 0;
                 }
             }
@@ -446,7 +431,7 @@ static int parse(regex** r, char* input) {
             vector_push(alternative_on_level, &i);
             temp_vector = new_vector(sizeof(vector*), NULL);
             vector_push(regex_objects, &temp_vector);
-            printf("DEBUG: block start\n");
+            DEBUG("block start\n");
         }
 
         // alternative
@@ -455,7 +440,7 @@ static int parse(regex** r, char* input) {
             vector_pop(elements_on_level, &elements);
             vector_pop(alternative_on_level, &alternative);
             if (elements == 0 || alternative == 1) {
-                printf("ERROR: invalid alternative\n");
+                ERROR("invalid alternative\n");
                 return 0;
             } else {
                 alternative = 1;
@@ -463,12 +448,12 @@ static int parse(regex** r, char* input) {
                 vector_push(alternative_on_level, &alternative);
                 pos++;
             }
-            printf("DEBUG: alternative\n");
+            DEBUG("alternative\n");
         }
 
         // invalid symbol
         else {
-            printf("ERROR: invalid symbol %c\n", input[pos]);
+            ERROR("invalid symbol %c\n", input[pos]);
             return 0;
         }
 
@@ -483,14 +468,14 @@ static int parse(regex** r, char* input) {
                 regex_alternative(temp_regex, current_regex);
                 vector_push(temp_vector, &temp_regex);
                 alternative = 0;
-                printf("DEBUG: pushed alternative\n");
+                DEBUG("pushed alternative\n");
             } else {
                 int elements;
                 vector_pop(elements_on_level, &elements);
                 elements++;
                 vector_push(elements_on_level, &elements);
                 vector_push(temp_vector, &current_regex);
-                printf("DEBUG: pushed element\n");
+                DEBUG("pushed element\n");
             }
             vector_push(alternative_on_level, &alternative);
             vector_push(regex_objects, &temp_vector);
@@ -503,19 +488,18 @@ static int parse(regex** r, char* input) {
         temp_int = 0;
     }
 
-    printf("DEBUG: end of parse loop\n");
+    DEBUG("end of parse loop\n");
 
     int alternative;
     vector_pop(alternative_on_level, &alternative);
 
     if (level || alternative) {
         if (level) {
-            printf("ERROR: %i blocks are not closed at the end of your "
-                   "expression\n",
+            ERROR("%i blocks are not closed at the end of your expression\n",
                    level);
             return 0;
         } else {
-            printf("ERROR: alternative not satisfied\n");
+            ERROR("alternative not satisfied\n");
             return 0;
         }
     } else {
@@ -529,7 +513,7 @@ static int parse(regex** r, char* input) {
             }
         }
 
-        printf("DEBUG: concatenated all elements\n");
+        DEBUG("concatenated all elements\n");
         delete_vector(&temp_vector);
 
         current_regex->line_start = line_start;
@@ -542,7 +526,7 @@ static int parse(regex** r, char* input) {
 
         *r = current_regex;
 
-        printf("DEBUG: end of parsing\n");
+        DEBUG("end of parsing\n");
 
         return 1;
     }

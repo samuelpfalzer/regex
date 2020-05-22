@@ -1,6 +1,16 @@
 #ifndef REGEX_H
 #define REGEX_H
 
+// clang-format off
+#define DEBUG_MODE 1
+#if DEBUG_MODE > 0
+#define DEBUG(fmt, ...) fprintf(stdout, "[DEBUG] " fmt, ##__VA_ARGS__)
+#else
+#define DEBUG(fmt, ...) while(0) {};
+#endif
+#define ERROR(fmt, ...) fprintf(stderr, "[ERROR] " fmt, ##__VA_ARGS__)
+// clang-format on
+
 
 /*
 supported regular expression subset:

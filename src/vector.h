@@ -2,11 +2,11 @@
 #define VECTOR_H
 
 
-// A generic stack implementation
-// Create an instance with stack* s = new_stack(sizof(type), (NULL|function
+// A generic vector implementation
+// Create an instance with vector* s = new_vector(sizof(type), (NULL|function
 // pointer)); the second parameter takes a pointer to a function that frees an
-// instance of the contained type if provided, every remaining element on the
-// stack will be freed upon deletion
+// instance of the contained type if provided, every remaining element in the
+// vector will be freed upon deletion
 
 
 typedef struct {

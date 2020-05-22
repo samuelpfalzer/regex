@@ -216,7 +216,7 @@ void regex_optional(regex* a) {
 
 
 void print_regex(regex* r) {
-    printf("\n\nREGEX - nr_states: %d\n", r->nr_states);
+    printf("\nREGEX - nr_states: %d\n", r->nr_states);
     if (r->line_start) {
         printf("line_start=true\n");
     }
@@ -269,6 +269,7 @@ void print_regex(regex* r) {
             }
         }
     }
+    printf("\n");
 }
 
 

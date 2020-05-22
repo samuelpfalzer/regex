@@ -7,7 +7,6 @@ int main(int argc, char* argv[]) {
     if (argc == 3) {
         regex* r = NULL;
         if (!regex_compile(&r, argv[1])) {
-            printf("compiler error\n");
             return 1;
         };
         print_regex(r);
