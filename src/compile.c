@@ -33,15 +33,15 @@ int regex_compile(regex** r, char* input) {
     delete_regex(r);
 
     success = string_to_regex(r, input);
-    /*
-        if (success) {
-            success = remove_epsilon_transitions(*r);
-        }
 
-        if (success) {
-            success = nfa_to_dfa(*r);
-        }
-    */
+    if (success) {
+        success = remove_epsilon_transitions(*r);
+    }
+
+    if (success) {
+        success = nfa_to_dfa(*r);
+    }
+
     if (!success) {
         delete_regex(r);
     }
