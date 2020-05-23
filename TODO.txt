@@ -5,3 +5,4 @@
 - fix memory leaks :)
 - minify the compiled automaton (optional, maybe faster without)
 - implement markers, e.g. 'ab<c*>de' with input 'abccde' matches and returns 'cc'
+- remove line_start and line_end markers from regex

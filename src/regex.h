@@ -2,47 +2,19 @@
 #define REGEX_H
 
 // clang-format off
-#define DEBUG_MODE 1
-#if DEBUG_MODE > 0
-#define DEBUG(fmt, ...) fprintf(stdout, "[DEBUG] " fmt, ##__VA_ARGS__)
-#else
-#define DEBUG(fmt, ...) while(0) {};
-#endif
 #define ERROR(fmt, ...) fprintf(stderr, "[ERROR] " fmt, ##__VA_ARGS__)
 // clang-format on
 
 
-/*
-supported regular expression subset:
-- a -> match letter a
-- a* -> match zero or more occurrences of a (greedy)
-- a*? -> match zero or more occurrences of a (lazy)
-- a+ -> match at least one occurrence of a (greedy)
-- a+? -> match at least one occurrence of a (lazy)
-- a? -> match zero or one occurrences of a (greedy)
-- a?? -> match zero or one occurrences of a (lazy)
-- a{2,5} -> match at least 2, but at most 5 occurrences of a
-- a|b -> match a or b
-- [abc03] -> match any character given in the class
-- [^abc03] -> match any character NOT given in the class
-- . -> match any character
-- () -> match a group (all other modifiers can be applied to a group)
-- ^ -> match the beginning of a line
-- $ -> match the end of a line
-- \( -> match a literal ( (applies for all special characters)
-- \\ -> match a literal \
-*/
-
-// needed to differ between ^ and the start of a line
+// avoid conflicts with the literal use of ^ and $
 #define LINE_START 2
 #define LINE_END 3
 
 
-//========== TYPE DEFINITIONS ==========
+/* TYPES */
 
 
 typedef enum { ts_dead, ts_active, ts_epsilon } transition_status;
-
 typedef struct {
     transition_status status;
     char symbol;
@@ -51,9 +23,7 @@ typedef struct {
 
 
 typedef enum { sb_none, sb_greedy, sb_lazy } state_behaviour;
-
 typedef enum { st_start, st_middle, st_end, st_start_end } state_type;
-
 typedef struct {
     int nr_transitions;
     state_behaviour behaviour;
@@ -70,75 +40,56 @@ typedef struct {
 } regex;
 
 
-//========== LIBRARY FUNCTIONS ==========
+/* PUBLIC FUNCTIONS */
 
 
-// compiles the input string to a regex structure
-// returns 1 on success, 0 else
+/* compiles the input string to an internal regex representation and stores it
+ * in r; *r must point to NULL or a dynamically allocated value; function
+ * returns 1 on success, 0 on error */
 int regex_compile(regex** r, char* input);
 
-// matches the previously compiled regex r against the input string
-// returns the number of matches
-// match positions are reported via the arrays locations and lengths
-int regex_match(regex* r, char* input, int** locations, int** lengths);
-
-// matches the previously compiled regex r against the input string
+/* matches the previously compiled regex r against the input string */
 int regex_match_first(regex* r, char* input, int* location, int* length);
 
-// compiles and matches the regular expression r similar to the regex_match
-// function
-int regex_compile_match(char* r, char* c, int* locations, int* lengths);
 
-// prints a compiled regex to the terminal
-void print_regex(regex* r);
+/* UTILITY FUNCTIONS */
 
 
-// ========== UTILITY FUNCTIONS ============
-
-
-// free a regex and all its elements recursively
-void free_regex(regex** r);
-
-// free a state and all its elements recursively
-void free_state(state* s);
-
-// returns a new malloced regex instance with all elements set to 0
-regex* new_regex();
-
-// returns a new malloced regex instance with a single transition
-regex* new_single_regex(char symbol);
-
-// only one start_end state
+/* regex constructors */
 regex* new_empty_regex();
-
-// returns a malloced copy of the regex r
+regex* new_single_transition_regex(char symbol);
+regex* new_single_state_regex();
 regex* copy_regex(regex* r);
+/* free a regex object and all its elements recursively, set *r to NULL */
+void delete_regex(regex** r);
 
-// returns a malloced state instance with all elements set to 0
+
+/* state constructor */
 state*
 new_state(int nr_transitions, state_behaviour behaviour, state_type type);
+/* free a state and all its elements recursively */
+void free_state(state* s);
 
-// returns a malloced transition
+
+/* transition constructor */
 transition*
 new_transition(transition_status status, char symbol, int next_state);
 
-// concatenate b at the end of a
-void regex_concat(regex* a, regex* b);
 
-// expand a to implement a choice between itself and b
-void regex_alternative(regex* a, regex* b);
-
-// repeat the regex a 0 or more times
+/* chain b after a */
+void regex_chain(regex* a, regex** b);
+void regex_alternative(regex* a, regex** b);
+/* 0-n repetitions */
 void regex_repeat(regex* a);
-
-// repeat the regex a 0 or 1 times
+/* 0-1 repetitions */
 void regex_optional(regex* a);
-
-// mark the regex as lazy (accepting the smallest possible amount of chars)
+/* mark all end states of a as lazy */
 void regex_make_lazy(regex* a);
-
-// mark the regex as greedy (accepting as many chars as possible)
+/* mark all end states of a as greedy */
 void regex_make_greedy(regex* a);
 
+
+/* print a compiled regex to the terminal */
+void print_regex(regex* r);
 
 #endif

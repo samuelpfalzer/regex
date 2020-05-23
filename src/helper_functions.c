@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 
-int in(const char a, const char *b, int length) {
+int contains(const char a, const char* b, int length) {
     if (b == NULL || length < 1) {
         return 0;
     }
@@ -15,7 +15,7 @@ int in(const char a, const char *b, int length) {
 }
 
 
-int sort_int_array(int *array, int size) {
+int sort_int_array(int* array, int size) {
     int changes = 1;
     while (changes > 0) {
         changes = 0;

@@ -2,11 +2,7 @@
 #define VECTOR_H
 
 
-// A generic vector implementation
-// Create an instance with vector* s = new_vector(sizof(type), (NULL|function
-// pointer)); the second parameter takes a pointer to a function that frees an
-// instance of the contained type if provided, every remaining element in the
-// vector will be freed upon deletion
+/* A generic vector */
 
 
 typedef struct {
@@ -17,25 +13,30 @@ typedef struct {
     void (*free_func)(void*);
 } vector;
 
-// constructors
+
+/* constructor: use like vector* v = new_vector(sizeof(type), NULL) */
 vector* new_vector(int type_size, void (*free_func)(void*));
-// create a vector from an existing array
-// sets *array to NULL to guarantee exclusive control over the content
+/* create a vector from an existing array and point *array to NULL */
 vector* new_vector_from_array(int type_size,
                               void (*free_func)(void*),
                               void** array,
                               int size);
+int delete_vector(vector** v);
+
 
 int vector_push(vector* v, void* element);
 int vector_pop(vector* v, void* element);
+int vector_top(vector* v, void* element);
 
-// needs a specified position
+
+/* random access */
 int vector_get_at(vector* v, int pos, void* element);
 int vector_set_at(vector* v, int pos, void* element);
 int vector_insert_at(vector* v, int pos, void* element);
 int vector_remove_at(vector* v, int pos);
 
-// uses the current iterator position
+
+/* iterator access */
 int vector_reset_iterator(vector* v);
 int vector_move_iterator(vector* v);
 int vector_next(vector* v, void* element);
@@ -44,12 +45,9 @@ int vector_set(vector* v, void* element);
 int vector_insert(vector* v, void* element);
 int vector_remove(vector* v);
 
-// extract the array from a vector and reset the vector
-// sets *array to the content address and returns the content size
-int vector_extract(vector* v, void** array);
 
-// destructor
-int delete_vector(vector** v);
+/* vector to c array conversion; resets the vector; returns the content size */
+int vector_extract(vector* v, void** array);
 
 
 #endif

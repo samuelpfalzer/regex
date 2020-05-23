@@ -7,7 +7,7 @@
 #include <string.h>
 
 
-// CONSTANTS
+/* CONSTANTS */
 
 const char* REGULAR_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
                               "WXYZ0123456789\"\'#/&=@!%_: \t<>";
@@ -16,145 +16,111 @@ const char* ALL_SYMBOLS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV<>"
                           "WXYZ0123456789\"\'#/&=@!%_: \t-^$()[]{}\\*+?.|";
 
 
-// PRIVATE FUNCTION DECLARATIONS
+/* PRIVATE FUNCTIONS */
 
 
-// compiles the input string to a regex structure -> 1 on success, else 0
-static int parse(regex** r, char* input);
-
+static int string_to_regex(regex** r, char* input);
 static int remove_epsilon_transitions(regex* r);
-
 static int nfa_to_dfa(regex* r);
 
-// remove every occurrence of all letters contained in b from a
+/* a = a - b */
 static int string_subtract(vector* a, vector* b);
 
 
-// COMPILE FUNCTION
-
-// TODO: free r if compilation fails!
-
+/* main function called from outside */
 int regex_compile(regex** r, char* input) {
-    free_regex(r);
+    int success;
+    delete_regex(r);
 
-    if (!parse(r, input)) {
-        ERROR("parsing failed\n");
-        return 0;
-    };
+    success = string_to_regex(r, input);
 
-    print_regex(*r);
+    if (success) {
+        success = remove_epsilon_transitions(*r);
+    }
 
-    if (!remove_epsilon_transitions(*r)) {
-        ERROR("remove_epsilon_transitions failed\n");
-        return 0;
-    };
+    if (success) {
+        success = nfa_to_dfa(*r);
+    }
 
-    if (!nfa_to_dfa(*r)) {
-        ERROR("nfa_to_dfa failed\n");
-        return 0;
-    };
+    if (!success) {
+        delete_regex(r);
+    }
 
-    return 1;
+    return success;
 }
 
 
-// PARSE FUNCTION
-
-
-static int parse(regex** r, char* input) {
+static int string_to_regex(regex** r, char* input) {
     int level = 0;
+    int success = 1;
 
     regex* current_regex = NULL;
-    vector* temp_vector = NULL;
-    regex* temp_regex = NULL;
-    regex* temp_regex2 = NULL;
-    int temp_int = 1;
-
-    vector* elements_on_level = new_vector(sizeof(int), NULL);
-    vector_push(elements_on_level, &temp_int);
 
     int pos = 0;
 
     vector* alternative_on_level = new_vector(sizeof(int), NULL);
     vector_push(alternative_on_level, &level);
 
-    // initialize the regex objects vector with an optional start of line
-    // (required to allow other start of line symbols inside the regex)
-    // the epsilon-nfa-dfa transformation handles the multiple start of lines
-    // this causes unreachable paths inside the final automaton (multiple start
-    // of lines chained, which is impossible to happen), but i found no other
-    // way of allowing start of line and end of line symbols to be used
+    /* initialize the regex objects vector with an optional start of line */
     vector* regex_objects = new_vector(sizeof(vector*), NULL);
-    temp_vector = new_vector(sizeof(regex*), NULL);
-    temp_regex = new_single_regex(LINE_START);
-    regex_optional(temp_regex);
-    vector_push(temp_vector, &temp_regex);
-    vector_push(regex_objects, &temp_vector);
+    {
+        vector* temp_vector = new_vector(sizeof(regex*), NULL);
+        regex* temp_regex = new_single_transition_regex(LINE_START);
+        regex_optional(temp_regex);
+        vector_push(temp_vector, &temp_regex);
+        vector_push(regex_objects, &temp_vector);
+    }
 
-    temp_regex = NULL;
-    temp_vector = NULL;
-
-    int line_start = 0;
-    int line_end = 0;
-
-
-    while (!in(input[pos], "\n\0", 2)) {
-        DEBUG("start of parse loop: level %d, pos %d (char %c)\n", level, pos,
-              input[pos]);
-
-        // alphanumerical character | end of block | any | escaped character
-        if (in(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS)) ||
-            in(input[pos], "[.)\\", 4)) {
+    while (success && input[pos] != 0) {
+        current_regex = NULL;
+        if (contains(input[pos], REGULAR_SYMBOLS, strlen(REGULAR_SYMBOLS)) ||
+            contains(input[pos], "[.)\\", 4)) {
 
             switch (input[pos]) {
-            case '\\': // escaped character
-                if (!in(input[pos + 1], ESCAPED_SYMBOLS,
-                        strlen(ESCAPED_SYMBOLS))) {
-                    ERROR("invalid escape sequence \\%c\n", input[pos + 1]);
-                    return 0;
+            /* escaped character */
+            case '\\':
+                if (!contains(input[pos + 1], ESCAPED_SYMBOLS,
+                              strlen(ESCAPED_SYMBOLS))) {
+                    success = 0;
                 } else {
-                    current_regex = new_single_regex(input[++pos]);
-                    DEBUG("escaped char\n");
+                    current_regex = new_single_transition_regex(input[++pos]);
                 }
                 break;
 
-            case ')': // closed block
-            {
-                int alternative_in_block;
-                vector_pop(alternative_on_level, &alternative_in_block);
-                if (alternative_in_block) {
-                    ERROR("alternative not satisfied\n");
-                    return 0;
+            /* closed block */
+            case ')': {
+                int open_alternative;
+                vector_pop(alternative_on_level, &open_alternative);
+                if (open_alternative) {
+                    success = 0;
+                    break;
                 }
 
-                int elements_in_block;
-                vector_pop(elements_on_level, &elements_in_block);
-                if (!elements_in_block) {
-                    ERROR("empty block\n");
-                    return 0;
+                vector* block_regex_objects = NULL;
+                vector_pop(regex_objects, &block_regex_objects);
+                if (!block_regex_objects->size) {
+                    success = 0;
+                    vector_push(regex_objects, &block_regex_objects);
+                    break;
                 }
 
-                // concatenate all elements of the current level into one
-                // erase the current level's element table
-                // and store the concatenated element in current_regex
-                vector* block_merge_vector = NULL;
-                vector_pop(regex_objects, &block_merge_vector);
-                vector_reset_iterator(block_merge_vector);
-
-                if (vector_next(block_merge_vector, &current_regex)) {
+                /* chain all elements inside the block together */
+                vector_reset_iterator(block_regex_objects);
+                if (vector_next(block_regex_objects, &current_regex)) {
                     regex* buffer_regex = NULL;
-                    while (vector_next(block_merge_vector, &buffer_regex)) {
-                        regex_concat(current_regex, buffer_regex);
+                    while (vector_next(block_regex_objects, &buffer_regex)) {
+                        regex_chain(current_regex, &buffer_regex);
                     }
                 }
+                delete_vector(&block_regex_objects);
 
-                delete_vector(&block_merge_vector);
                 level--;
-                DEBUG("block end\n");
                 break;
             }
-            case '.': // any character
-                current_regex = new_single_regex(ALL_SYMBOLS[0]);
+
+            /* any character */
+            case '.':
+                current_regex = new_single_transition_regex(ALL_SYMBOLS[0]);
                 current_regex->states[0]->transitions =
                     realloc(current_regex->states[0]->transitions,
                             strlen(ALL_SYMBOLS) * sizeof(transition*));
@@ -163,408 +129,335 @@ static int parse(regex** r, char* input) {
                         new_transition(ts_active, ALL_SYMBOLS[i], 1);
                 }
                 current_regex->states[0]->nr_transitions = strlen(ALL_SYMBOLS);
-                DEBUG("any char\n");
                 break;
 
-            case '[': // character class
-            {
-                int inverted = 0; // TODO: implement
+            /* character class */
+            case '[': {
+                int inverted = 0;
+
                 if (input[pos + 1] == '^') {
-                    DEBUG("inverted class\n");
                     inverted = 1;
                     pos++;
                 }
 
                 if (input[++pos] == ']') {
-                    ERROR("\nERROR: empty class not allowed\n");
-                    return 0;
+                    success = 0;
+                    break;
                 }
 
-                int nr_symbols = 0;
-                char* symbols = NULL;
+                vector* v_symbols = new_vector(sizeof(char), NULL);
 
-                while (input[pos] != ']') {
-                    DEBUG("parsing class, symbol = %c\n", input[pos]);
-                    if (in(input[pos], "\n\0", 2)) {
-                        printf("\nERROR: class not closed");
-                        return 0;
+                while (input[pos] != ']' && input[pos] != 0) {
+                    if (contains(input[pos], "\n\0", 2)) {
+                        success = 0;
+                        break;
                     }
 
-                    // escaped symbol
+                    /* escaped symbol */
                     if (input[pos] == '\\' &&
-                        in(input[pos + 1], ESCAPED_SYMBOLS,
-                           strlen(ESCAPED_SYMBOLS))) {
+                        contains(input[pos + 1], ESCAPED_SYMBOLS,
+                                 strlen(ESCAPED_SYMBOLS))) {
                         pos++;
-                        symbols =
-                            realloc(symbols, (++nr_symbols) * sizeof(char));
-                        DEBUG("->  added %c to class", input[pos]);
-                        symbols[nr_symbols - 1] = input[pos++];
+                        vector_push(v_symbols, &input[pos++]);
                     }
 
-                    // range
+                    /* range */
                     else if (input[pos + 1] == '-') {
-                        if (in(input[pos + 2], "\n\0", 2)) {
-                            ERROR("\nERROR: class not closed");
-                            return 0;
+                        if (contains(input[pos + 2], "\n\0]", 3)) {
+                            success = 0;
+                            break;
                         }
-                        if (input[pos + 2] == ']') {
-                            ERROR("\nERROR: range must specify an end\n");
-                            return 0;
-                        } else if (!((input[pos] <= input[pos + 2]) &&
-                                     ((input[pos] >= 'a' &&
-                                       input[pos] <= 'z') ||
-                                      (input[pos] >= 'A' &&
-                                       input[pos] <= 'Z') ||
-                                      (input[pos] >= '0' &&
-                                       input[pos] <= '9')))) {
-                            ERROR("\nERROR: invalid range\n");
-                            return 0;
+                        /* possible ranges a-zA-Z0-9 and between */
+                        else if (!((input[pos] <= input[pos + 2]) &&
+                                   ((input[pos] >= 'a' && input[pos] <= 'z') ||
+                                    (input[pos] >= 'A' && input[pos] <= 'Z') ||
+                                    (input[pos] >= '0' &&
+                                     input[pos] <= '9')))) {
+                            success = 0;
+                            break;
                         } else {
-                            for (char i = input[pos]; i <= input[pos + 2];
-                                 i++) {
-                                if (!in(i, symbols, nr_symbols)) {
-                                    symbols = realloc(
-                                        symbols, (++nr_symbols) * sizeof(char));
-                                    symbols[nr_symbols - 1] = i;
+                            for (char c = input[pos]; c <= input[pos + 2];
+                                 c++) {
+                                if (!contains(c, v_symbols->content,
+                                              v_symbols->size)) {
+                                    vector_push(v_symbols, &c);
                                 }
                             }
-                            // 3 chars: a-z
-                            pos += 3;
+                            pos += 3; /* every range consists of 3 characters */
                         }
                     }
-                    // single symbol
+
+                    /* standard symbol */
                     else {
-                        symbols =
-                            realloc(symbols, (++nr_symbols) * sizeof(char));
-                        symbols[nr_symbols - 1] = input[pos++];
+                        vector_push(v_symbols, input[pos++]);
                     }
                 }
 
-                // if the class is inverted, subtract it from ALL_SYMBOLS
+                if (!success) {
+                    break;
+                }
+
+                /* inverted class: ALL_SYMBOLS - v_symbols */
                 if (inverted) {
-                    char* inverted_symbols = malloc(strlen(ALL_SYMBOLS) + 1);
-                    inverted_symbols[strlen(ALL_SYMBOLS) - 1] = 0;
+                    vector* v_inverted_symbols = new_vector(sizeof(char), NULL);
                     for (int i = 0; i < strlen(ALL_SYMBOLS); i++) {
-                        inverted_symbols[i] = ALL_SYMBOLS[i];
+                        vector_push(v_inverted_symbols, &ALL_SYMBOLS[i]);
                     }
-                    vector* v_inverted_symbols = new_vector_from_array(
-                        sizeof(char), NULL, &inverted_symbols,
-                        strlen(inverted_symbols));
-                    vector* v_symbols = new_vector_from_array(
-                        sizeof(char), NULL, &symbols, strlen(symbols));
                     string_subtract(v_inverted_symbols, v_symbols);
-                    vector_extract(v_symbols, &symbols);
-                    vector_extract(v_inverted_symbols, &inverted_symbols);
-                    free(symbols);
-                    symbols = inverted_symbols;
-                    inverted_symbols = NULL;
+                    delete_vector(&v_symbols);
+                    v_symbols = v_inverted_symbols;
+                    v_inverted_symbols = NULL;
                 }
 
-                // like with '.', only 2 states are needed for this part
-                // just iterate over the valid symbol string and create a
-                // transition for each symbol
-                current_regex = new_single_regex(symbols[0]);
+                char symbol;
+                vector_reset_iterator(v_symbols);
+                vector_next(v_symbols, &symbol);
+                current_regex = new_single_transition_regex(symbol);
                 current_regex->states[0]->transitions =
                     realloc(current_regex->states[0]->transitions,
-                            nr_symbols * sizeof(transition*));
-                for (int i = 1; i < nr_symbols; i++) {
-                    current_regex->states[0]->transitions[i] =
-                        new_transition(ts_active, symbols[i], 1);
+                            v_symbols->size * sizeof(transition*));
+                while (vector_next(v_symbols, &symbol)) {
+                    current_regex->states[0]
+                        ->transitions[v_symbols->iterator - 1] =
+                        new_transition(ts_active, symbol, 1);
                 }
-                current_regex->states[0]->nr_transitions = nr_symbols;
+                current_regex->states[0]->nr_transitions = v_symbols->size;
 
-                free(symbols);
-                DEBUG("char class\n");
-                break;
-            }
-            default: // regular character
-                current_regex = new_single_regex(input[pos]);
-                DEBUG("regular char\n");
+                delete_vector(v_symbols);
                 break;
             }
 
+            /* standard character */
+            default:
+                current_regex = new_single_transition_regex(input[pos]);
+                break;
+            }
 
-            // MODIFIERS
+
+            /* modifiers */
             switch (input[pos + 1]) {
-            // repetition range a{2,5}
+            /* repetition range a{2,5} */
             case '{': {
                 int min = 0;
                 int max = 0;
                 pos += 2;
 
-                // parse min number
+                /* parse min */
                 while (input[pos] != ',' && input[pos] != '}') {
                     if (input[pos] >= '0' && input[pos] <= '9') {
                         min = min * 10 + (input[pos++] - '0');
                     } else {
-                        ERROR("%c is no number and cannot specify a "
-                              "range\n",
-                              input[pos]);
-                        return 0;
+                        success = 0;
+                        break;
                     }
-                }
-                if (input[pos] == ',') {
-                    pos++;
                 }
 
-                if (input[pos] == '}') {
-                    max = min;
-                } else if (input[pos] == ',' && input[pos + 1] == '}') {
-                    max = min;
-                    pos++;
-                } else {
-                    // read max number
-                    while (input[pos] != '}') {
-                        if (input[pos] >= '0' && input[pos] <= '9') {
-                            max = max * 10 + (input[pos++] - '0');
-                        } else {
-                            ERROR(
-                                "\nERROR: %c is no number and cannot specify a "
-                                "range\n",
-                                input[pos]);
-                            return 0;
+                if (!success) {
+                    break;
+                }
+
+                if (input[pos] == ',') {
+                    if (input[++pos] == '}') {
+                        max = min;
+                    } else {
+                        /* parse max */
+                        while (input[pos] != '}') {
+                            if (input[pos] >= '0' && input[pos] <= '9') {
+                                max = max * 10 + (input[pos++] - '0');
+                            } else {
+                                success = 0;
+                                break;
+                            }
                         }
                     }
+                } else if (input[pos] == '}') {
+                    max = min;
+                }
+
+
+                if (!success) {
+                    break;
                 }
 
                 pos++;
 
                 if (min < 0 || max < 1 || min > max) {
-                    ERROR("\nERROR: invalid range\n");
-                    return 0;
+                    success = 0;
+                    break;
                 }
 
-                // create max-1 copies to be concatenated behind
-                // current_regex
-                temp_vector = new_vector(sizeof(regex*), NULL);
+                /* chain max-1 copies of current_regex */
+                vector* copy_vector = new_vector(sizeof(regex*), NULL);
                 for (int i = 0; i < (max - 1); i++) {
-                    temp_regex = copy_regex(current_regex);
-                    vector_push(temp_vector, &temp_regex);
+                    regex* temp_regex = copy_regex(current_regex);
+                    vector_push(copy_vector, &temp_regex);
                 }
 
 
-                // fold the additional regexes into a single one
+                /* fold all copied regexes into one */
+                regex* left = NULL;
+                regex* right = NULL;
                 for (int i = max - 2; i >= 0; i--) {
-                    vector_pop(temp_vector, &temp_regex);
+                    vector_pop(copy_vector, &right);
                     if (i >= min - 1) {
-                        regex_optional(temp_regex);
+                        regex_optional(right);
                     }
                     if (i > 0) {
-                        vector_pop(temp_vector, &temp_regex2);
-                        regex_concat(temp_regex2, temp_regex);
-                        vector_push(temp_vector, &temp_regex2);
+                        vector_pop(copy_vector, &left);
+                        regex_chain(left, &right);
+                        vector_push(copy_vector, &left);
                     }
                 }
 
-                // concat the additional regexes to the original one
-                vector_pop(temp_vector, &temp_regex);
-                regex_concat(current_regex, temp_regex);
+                /* chain the copies behind current_regex */
+                vector_pop(copy_vector, &right);
+                regex_chain(current_regex, &right);
 
-                delete_vector(&temp_vector);
+                delete_vector(&copy_vector);
 
-                // in case {0,x} the whole construct may be repeated 0 times
                 if (min == 0) {
                     regex_optional(current_regex);
                 }
-                DEBUG("range modifier\n");
             } break;
 
-            // zero or one repetition a?
-            case '?': {
+            /* zero or one repetition a? */
+            case '?':
                 regex_optional(current_regex);
-
-                // a??
                 if (input[pos + 2] == '?') {
                     regex_make_lazy(current_regex);
                     pos += 3;
-                }
-
-                // a?
-                else {
+                } else {
                     regex_make_greedy(current_regex);
                     pos += 2;
                 }
+                break;
 
-                DEBUG("? modifier\n");
-            } break;
-
-            // zero to infty repetitions a* or a*?
-            case '*': {
+            /* zero or many repetitions a* */
+            case '*':
                 regex_repeat(current_regex);
-
-                // a*?
                 if (input[pos + 2] == '?') {
                     regex_make_lazy(current_regex);
                     pos += 3;
-                }
-
-                // a*
-                else {
+                } else {
                     regex_make_greedy(current_regex);
                     pos += 2;
                 }
-                DEBUG("* modifier\n");
-            } break;
+                break;
 
-            // one to infty repetitions a+ or a+?
+            /* one or many repetitions a+ */
             case '+': {
-                temp_regex = copy_regex(current_regex);
+                regex* temp_regex = copy_regex(current_regex);
                 regex_repeat(temp_regex);
-                regex_concat(current_regex, temp_regex);
-
-                // a+?
+                regex_chain(current_regex, &temp_regex);
                 if (input[pos + 2] == '?') {
                     regex_make_lazy(current_regex);
                     pos += 3;
-                }
-
-                // a+
-                else {
+                } else {
                     regex_make_greedy(current_regex);
                     pos += 2;
                 }
-                DEBUG("+ modifier\n");
             } break;
 
-            // no modifiers
+            /* no modifiers */
             default:
                 pos++;
-                DEBUG("no modifiers\n");
                 break;
             }
         }
 
-        // ^
+        /* ^ line start */
         else if (input[pos] == '^') {
             pos++;
-            line_start = 1;
-            DEBUG("line start\n");
-            current_regex = new_single_regex(LINE_START);
+            current_regex = new_single_transition_regex(LINE_START);
         }
 
-        // $
+        /* line end */
         else if (input[pos] == '$') {
             pos++;
-            line_end = 1;
-            DEBUG("line end\n");
-            current_regex = new_single_regex(LINE_END);
+            current_regex = new_single_transition_regex(LINE_END);
         }
 
-        // block start
+        /* block start */
         else if (input[pos] == '(') {
             pos++;
             level++;
-            int i = 0;
-            vector_push(elements_on_level, &i);
-            vector_push(alternative_on_level, &i);
-            temp_vector = new_vector(sizeof(vector*), NULL);
+            int temp_int = 0;
+            vector_push(alternative_on_level, &temp_int);
+            vector* temp_vector = new_vector(sizeof(vector*), NULL);
             vector_push(regex_objects, &temp_vector);
-            DEBUG("block start\n");
         }
 
-        // alternative
+        /* alternative */
         else if (input[pos] == '|') {
-            int elements, alternative;
-            vector_pop(elements_on_level, &elements);
-            vector_pop(alternative_on_level, &alternative);
-            if (elements == 0 || alternative == 1) {
-                ERROR("invalid alternative\n");
-                return 0;
+            int alternative;
+            vector* regex_objects_top;
+            vector_top(regex_objects, &regex_objects_top);
+            vector_top(alternative_on_level, &alternative);
+            if (!regex_objects_top->size || alternative) {
+                success = 0;
+                break;
             } else {
                 alternative = 1;
-                vector_push(elements_on_level, &elements);
-                vector_push(alternative_on_level, &alternative);
                 pos++;
             }
-            DEBUG("alternative\n");
         }
 
-        // invalid symbol
+        /* invalid symbol */
         else {
-            ERROR("invalid symbol %c\n", input[pos]);
-            return 0;
+            success = 0;
+            break;
         }
 
-        // if a value was assigned to current_regex: integrate it into the
-        // object list
+        /* if necessary, integrate current_regex */
         if (current_regex != NULL) {
-            vector_pop(regex_objects, &temp_vector);
+            vector* v_temp_regex;
+            vector_pop(regex_objects, &v_temp_regex);
             int alternative;
             vector_pop(alternative_on_level, &alternative);
             if (alternative) {
-                vector_pop(temp_vector, &temp_regex);
-                regex_alternative(temp_regex, current_regex);
-                vector_push(temp_vector, &temp_regex);
+                regex* temp_regex;
+                vector_pop(v_temp_regex, &temp_regex);
+                regex_alternative(v_temp_regex, &current_regex);
+                vector_push(v_temp_regex, &temp_regex);
                 alternative = 0;
-                DEBUG("pushed alternative\n");
             } else {
-                int elements;
-                vector_pop(elements_on_level, &elements);
-                elements++;
-                vector_push(elements_on_level, &elements);
-                vector_push(temp_vector, &current_regex);
-                DEBUG("pushed element\n");
+                vector_push(v_temp_regex, &current_regex);
             }
             vector_push(alternative_on_level, &alternative);
-            vector_push(regex_objects, &temp_vector);
+            vector_push(regex_objects, &v_temp_regex);
         }
-
-        current_regex = NULL;
-        temp_vector = NULL;
-        temp_regex = NULL;
-        temp_regex2 = NULL;
-        temp_int = 0;
     }
 
-    DEBUG("end of parse loop\n");
+    if (success) {
+        int alternative;
+        vector_pop(alternative_on_level, &alternative);
 
-    int alternative;
-    vector_pop(alternative_on_level, &alternative);
-
-    if (level || alternative) {
-        if (level) {
-            ERROR("%i blocks are not closed at the end of your expression\n",
-                  level);
-            return 0;
+        if (level || alternative) {
+            success = 0;
         } else {
-            ERROR("alternative not satisfied\n");
-            return 0;
-        }
-    } else {
-        // concatenate all level 0 regex elements
-        vector_pop(regex_objects, &temp_vector);
-        temp_vector->iterator = 0;
-
-        if (vector_next(temp_vector, &current_regex)) {
-            while (vector_next(temp_vector, &temp_regex)) {
-                regex_concat(current_regex, temp_regex);
+            /* chain all level 0 elements */
+            vector* level_0_elements;
+            vector_pop(regex_objects, &level_0_elements);
+            vector_reset_iterator(level_0_elements);
+            regex* temp_regex;
+            if (vector_next(level_0_elements, &current_regex)) {
+                while (vector_next(level_0_elements, &temp_regex)) {
+                    regex_chain(current_regex, &temp_regex);
+                }
             }
+
+            /* chain an optional end of line regex to the end */
+            temp_regex = new_single_transition_regex(LINE_END);
+            regex_optional(temp_regex);
+            regex_chain(current_regex, &temp_regex);
+
+            *r = current_regex;
         }
-
-        DEBUG("concatenated all elements\n");
-        delete_vector(&temp_vector);
-
-        current_regex->line_start = line_start;
-        current_regex->line_end = line_end;
-
-        delete_vector(&elements_on_level);
-        delete_vector(&alternative_on_level);
-
-        delete_vector(&regex_objects);
-
-        // concatenate an optional end of line transition behind the finished
-        // regex object for explanation see above where the optional start of
-        // line transition is put at the beginning of the automaton :)
-        temp_regex = new_single_regex(LINE_END);
-        regex_optional(temp_regex);
-        regex_concat(current_regex, temp_regex);
-
-        *r = current_regex;
-
-        DEBUG("end of parsing\n");
-
-        return 1;
     }
+
+    /* clean up */
+
+    return success;
 }
 
 // EPSILON FUNCTION
@@ -693,7 +586,8 @@ static int remove_epsilon_transitions(regex* r) {
              transition_nr++) {
             if (r->states[state_nr]->transitions[transition_nr]->status ==
                     ts_active &&
-                !in(r->states[state_nr]->transitions[transition_nr]->symbol,
+                !contains(
+                    r->states[state_nr]->transitions[transition_nr]->symbol,
                     symbols, nr_symbols)) {
                 symbols = realloc(symbols, ++nr_symbols * sizeof(char));
                 symbols[nr_symbols - 1] =
@@ -835,7 +729,8 @@ static int nfa_to_dfa(regex* r) {
              transition_nr++) {
             if ((r->states[state_nr]->transitions[transition_nr]->status ==
                  ts_active) &&
-                !in(r->states[state_nr]->transitions[transition_nr]->symbol,
+                !contains(
+                    r->states[state_nr]->transitions[transition_nr]->symbol,
                     symbols, nr_symbols)) {
                 symbols = realloc(symbols, ++nr_symbols * sizeof(char));
                 symbols[nr_symbols - 1] =
