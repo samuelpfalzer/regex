@@ -425,8 +425,7 @@ static int string_to_regex(regex** r, char* input) {
             }
             vector_push(alternative_on_level, &alternative);
             vector_push(regex_objects, &v_temp_regex);
-            /* free only the pointer, not the content */
-            free(current_regex);
+            current_regex = NULL;
         }
     }
 
