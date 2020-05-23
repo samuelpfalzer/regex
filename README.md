@@ -56,3 +56,7 @@ int success = regex_match_first(r, s, &position, &length);
 > ./bin/example 'regular expression' 'string to match against'
 ```
 Either gcc must be installed or you have to change the compiler in the makefile
+
+## tests
+
+a small suite of tests can be run from the main directory with `make test`. 

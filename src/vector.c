@@ -218,6 +218,7 @@ int delete_vector(vector** v) {
                             ((*v)->size - 1) * (*v)->type_size);
         }
     }
+    free((*v)->content);
     free(*v);
     *v = NULL;
     return 1;
