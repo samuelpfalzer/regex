@@ -112,6 +112,7 @@ void regex_chain(regex* a, regex** b) {
 
     a->nr_states += (*b)->nr_states;
     /* use free directly to preserve the states now stored in a */
+    free((*b)->states);
     free(*b);
     *b = NULL;
 }
@@ -153,6 +154,7 @@ void regex_alternative(regex* a, regex** b) {
     a->nr_states += (*b)->nr_states;
 
     /* free b, but don't delete its states */
+    free((*b)->states);
     free(*b);
     *b = NULL;
 }

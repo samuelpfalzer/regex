@@ -392,12 +392,14 @@ static int string_to_regex(regex** r, char* input) {
             int alternative;
             vector* regex_objects_top;
             vector_top(regex_objects, &regex_objects_top);
-            vector_top(alternative_on_level, &alternative);
+            vector_pop(alternative_on_level, &alternative);
             if (!regex_objects_top->size || alternative) {
                 success = 0;
+                vector_push(alternative_on_level, &alternative);
                 break;
             } else {
                 alternative = 1;
+                vector_push(alternative_on_level, &alternative);
                 pos++;
             }
         }
