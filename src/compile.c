@@ -24,7 +24,7 @@ static int remove_epsilon_transitions(regex* r);
 static int nfa_to_dfa(regex* r);
 
 /* a = a - b */
-static int string_subtract(vector* a, vector* b);
+static void string_subtract(vector* a, vector* b);
 
 
 /* main function called from outside */
@@ -33,15 +33,15 @@ int regex_compile(regex** r, char* input) {
     delete_regex(r);
 
     success = string_to_regex(r, input);
+    /*
+        if (success) {
+            success = remove_epsilon_transitions(*r);
+        }
 
-    if (success) {
-        success = remove_epsilon_transitions(*r);
-    }
-
-    if (success) {
-        success = nfa_to_dfa(*r);
-    }
-
+        if (success) {
+            success = nfa_to_dfa(*r);
+        }
+    */
     if (!success) {
         delete_regex(r);
     }
@@ -189,7 +189,7 @@ static int string_to_regex(regex** r, char* input) {
 
                     /* standard symbol */
                     else {
-                        vector_push(v_symbols, input[pos++]);
+                        vector_push(v_symbols, &input[pos++]);
                     }
                 }
 
@@ -223,7 +223,7 @@ static int string_to_regex(regex** r, char* input) {
                 }
                 current_regex->states[0]->nr_transitions = v_symbols->size;
 
-                delete_vector(v_symbols);
+                delete_vector(&v_symbols);
                 break;
             }
 
@@ -417,7 +417,7 @@ static int string_to_regex(regex** r, char* input) {
             if (alternative) {
                 regex* temp_regex;
                 vector_pop(v_temp_regex, &temp_regex);
-                regex_alternative(v_temp_regex, &current_regex);
+                regex_alternative(temp_regex, &current_regex);
                 vector_push(v_temp_regex, &temp_regex);
                 alternative = 0;
             } else {
@@ -425,6 +425,8 @@ static int string_to_regex(regex** r, char* input) {
             }
             vector_push(alternative_on_level, &alternative);
             vector_push(regex_objects, &v_temp_regex);
+            /* free only the pointer, not the content */
+            free(current_regex);
         }
     }
 
@@ -452,10 +454,15 @@ static int string_to_regex(regex** r, char* input) {
             regex_chain(current_regex, &temp_regex);
 
             *r = current_regex;
+            current_regex = NULL;
         }
     }
 
+
     /* clean up */
+    delete_regex(&current_regex);
+    delete_vector(&regex_objects);
+    delete_vector(&alternative_on_level);
 
     return success;
 }
@@ -948,7 +955,7 @@ static int nfa_to_dfa(regex* r) {
 }
 
 
-static int string_subtract(vector* a, vector* b) {
+static void string_subtract(vector* a, vector* b) {
     vector_reset_iterator(b);
     char comp_char;
     while (vector_next(b, &comp_char)) {
