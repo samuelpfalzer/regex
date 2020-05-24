@@ -506,62 +506,59 @@ static int remove_epsilon_transitions(regex* r) {
 
     /* iterate over all states and calculate the epsilon closures */
     for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
-        // reset the "marked" vector
+        /* reset the marked vector */
         vector_reset_iterator(marked);
         do {
             vector_set(marked, &null_const);
         } while (vector_move_iterator(marked));
 
-        // get a "reference" to the partial vector (contains a list of all
-        // states that are in the epsilon closure)
+        /* get a "reference" to the partial vector (contains a list of all
+         * states that are in the epsilon closure; contains at least the
+         * processed state itself)
+         */
         vector* current_epsilon_closure;
         vector_get_at(epsilon_closure_list, state_nr, &current_epsilon_closure);
 
-        // look if there's already a marked set of states from previous
-        // iterations
-        int prev_marked_set = 0;
-        vector_get_at(epsilon_closure_size, state_nr, &prev_marked_set);
-        if (prev_marked_set) {
-            vector_reset_iterator(current_epsilon_closure);
-            // push all to the stack for further processing
-            // + mark them as already visited, but with a 2 so they won't get
-            // stored twice
-            int state_to_examine;
-            while (vector_next(current_epsilon_closure, &state_to_examine)) {
-                stack_push(s, &state_to_examine);
-                vector_set_at(marked, state_to_examine, &two_const);
-            }
-        } else {
-            stack_push(s, &state_nr);
-            vector_set_at(marked, state_nr, &one_const);
+        /* push all to the stack for further processing + mark them as already
+         * visited, but with a 2 so they won't get stored twice */
+        vector_reset_iterator(current_epsilon_closure);
+        int state_to_examine;
+        while (vector_next(current_epsilon_closure, &state_to_examine)) {
+            stack_push(s, &state_to_examine);
+            vector_set_at(marked, state_to_examine, &two_const);
         }
 
-        // TODO: make more efficient by writing intermediate results
-        // mark all reachable states
+        /* process all states on the stack */
         int processed_state;
         while (stack_pop(s, &processed_state)) {
-            // iterate over all transitions of the processed state
             for (int transition_nr = 0;
                  transition_nr < r->states[processed_state]->nr_transitions;
                  transition_nr++) {
                 if (r->states[processed_state]
                         ->transitions[transition_nr]
                         ->status == ts_epsilon) {
+                    int next_state = r->states[processed_state]
+                                         ->transitions[transition_nr]
+                                         ->next_state;
                     int next_state_marked;
-                    vector_get_at(marked,
-                                  r->states[processed_state]
-                                      ->transitions[transition_nr]
-                                      ->next_state,
-                                  &next_state_marked);
+                    vector_get_at(marked, next_state, &next_state_marked);
                     if (!next_state_marked) {
-                        vector_set_at(marked,
-                                      r->states[processed_state]
-                                          ->transitions[transition_nr]
-                                          ->next_state,
-                                      &one_const);
-                        stack_push(s, &(r->states[processed_state]
-                                            ->transitions[transition_nr]
-                                            ->next_state));
+                        vector_set_at(marked, next_state, &one_const);
+                        stack_push(s, &next_state);
+                        /* push next_state to the epsilon closure of
+                         * processed_state for later */
+                        vector* temp_epsilon_closure;
+                        int temp_epsilon_closure_size;
+                        vector_get_at(epsilon_closure_list, processed_state,
+                                      &temp_epsilon_closure);
+                        vector_get_at(epsilon_closure_size, processed_state,
+                                      &temp_epsilon_closure_size);
+                        temp_epsilon_closure_size++;
+                        vector_set_at(epsilon_closure_size, processed_state,
+                                      &temp_epsilon_closure_size);
+                        vector_push(temp_epsilon_closure, &next_state);
+                        vector_set_at(epsilon_closure_list, processed_state,
+                                      &temp_epsilon_closure);
                     }
                 }
             }
@@ -633,8 +630,8 @@ static int remove_epsilon_transitions(regex* r) {
             char symbol = symbols[symbol_iterator];
 
             // iterate over all states in the epsilon closure
-            // mark their successor if they have a transition with the current
-            // symbol
+            // mark their successor if they have a transition with the
+            // current symbol
             vector_reset_iterator(current_epsilon_closure);
             int processed_state;
             while (vector_next(current_epsilon_closure, &processed_state)) {
@@ -654,9 +651,9 @@ static int remove_epsilon_transitions(regex* r) {
                 }
             }
 
-            // now all states directly reachable with symbol from the current
-            // epsilon closure are marked -> mark the epsilon closure of those
-            // states
+            // now all states directly reachable with symbol from the
+            // current epsilon closure are marked -> mark the epsilon
+            // closure of those states
             for (int checked_state = 0; checked_state < r->nr_states;
                  checked_state++) {
                 int is_reachable;
@@ -674,9 +671,9 @@ static int remove_epsilon_transitions(regex* r) {
                 }
             }
 
-            // remove duplicates: iterate over the current state's transitions
-            // and unmark all states that are already reachable with the current
-            // symbol
+            // remove duplicates: iterate over the current state's
+            // transitions and unmark all states that are already reachable
+            // with the current symbol
             for (int transition_iterator = 0;
                  transition_iterator < r->states[state_nr]->nr_transitions;
                  transition_iterator++) {
@@ -791,8 +788,8 @@ static int nfa_to_dfa(regex* r) {
             vector_reset_iterator(current_state_set);
             int state_nr;
 
-            // iterate over all old states that belong to the current combined
-            // state
+            // iterate over all old states that belong to the current
+            // combined state
             while (vector_next(current_state_set, &state_nr)) {
                 // find all next states with the current symbol
                 for (int transition_iterator = 0;
@@ -826,8 +823,8 @@ static int nfa_to_dfa(regex* r) {
                                     ->transitions[transition_iterator]
                                     ->next_state;
 
-                            // check if it is an end state -> must be marked in
-                            // the new state
+                            // check if it is an end state -> must be marked
+                            // in the new state
                             if (r->states[r->states[state_nr]
                                               ->transitions[transition_iterator]
                                               ->next_state]
@@ -913,7 +910,8 @@ static int nfa_to_dfa(regex* r) {
                 vector_push(states, &created_state);
 
                 // set exists to the newly created state
-                // if no state was created, it already points to the correct one
+                // if no state was created, it already points to the correct
+                // one
                 exists = ++(nr_state_sets)-1;
 
                 // push the new state to the stack so it will be processed
