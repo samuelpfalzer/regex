@@ -472,29 +472,39 @@ static int string_to_regex(regex** r, char* input) {
 
 
 static int remove_epsilon_transitions(regex* r) {
-    // calculate epsilon closure for every state
-    // visited is initialized with 0 (?)
-    // and marked with 1 when visited
-    vector* epsilon_closure_size = new_vector(sizeof(int), NULL);
+    /* stores a list of all states in the epsilon closure of state n at position
+     * n */
     vector* epsilon_closure_list = new_vector(sizeof(vector*), NULL);
+    /* redundant but faster access than using the epsilon_closure_list and
+     * checking individual sizes of sub-vectors */
+    vector* epsilon_closure_size = new_vector(sizeof(int), NULL);
+    /* used in multiple passes to mark states as visited/contained/...,
+     * initialized once because the size never changes */
     vector* marked = new_vector(sizeof(int), NULL);
 
-
+    /* used to mark/unmark states; necessary because passing values to a vector
+     * is only possible by reference */
     int null_const = 0;
     int one_const = 1;
     int two_const = 2;
 
-    // initialize vectors
+    /* initialize vectors; because every state's epsilon closure contains the
+     * state itself, each epsilon closure is initialized with the iterator value
+     * and size 1
+     */
     for (int i = 0; i < r->nr_states; i++) {
-        vector_push(epsilon_closure_size, &null_const);
+        vector_push(epsilon_closure_size, &one_const);
         vector_push(marked, &null_const);
-        vector* y = new_vector(sizeof(int), NULL);
-        vector_push(epsilon_closure_list, &y);
+        vector* temp_vector = new_vector(sizeof(int), NULL);
+        vector_push(temp_vector, &i);
+        vector_push(epsilon_closure_list, &temp_vector);
     }
 
+    /* always contains the states that need to be processed in the current
+     * iteration */
     stack* s = new_stack(sizeof(int), NULL);
 
-    // iterate over all states and calculate the epsilon closures
+    /* iterate over all states and calculate the epsilon closures */
     for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
         // reset the "marked" vector
         vector_reset_iterator(marked);
@@ -701,7 +711,6 @@ static int remove_epsilon_transitions(regex* r) {
             }
         }
     }
-
 
     free(symbols);
     delete_vector(&marked);

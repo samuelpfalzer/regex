@@ -26,6 +26,7 @@ int main(int argc, char* argv[]) {
             }
             printf("match of length %d at position %d: %s\n", length, location,
                    match);
+            free(match);
         } else {
             printf("no match\n");
         }
