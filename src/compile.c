@@ -448,7 +448,7 @@ static int string_to_regex(regex** r, char* input) {
                     regex_chain(current_regex, &temp_regex);
                 }
             }
-
+            delete_vector(&level_0_elements);
             /* chain an optional end of line regex to the end */
             temp_regex = new_single_transition_regex(LINE_END);
             regex_optional(temp_regex);
@@ -564,7 +564,7 @@ static int remove_epsilon_transitions(regex* r) {
             }
         }
 
-        // put the reachable states into the epsilon closure list
+        /* put the reachable states into the epsilon closure list */
         vector_reset_iterator(marked);
         int examined_state = 0;
         int state_reachable = 0;
@@ -575,14 +575,14 @@ static int remove_epsilon_transitions(regex* r) {
             }
         }
 
-        // copy the (maybe) changed partial vector back and write its size
+        /* copy the (maybe) changed partial vector back and write its size */
         vector_set_at(epsilon_closure_list, state_nr, &current_epsilon_closure);
         vector_set_at(epsilon_closure_size, state_nr,
                       &(current_epsilon_closure->size));
     }
     delete_stack(&s);
 
-    // remove all epsilon transitions by marking them as dead
+    /* remove all epsilon transitions by marking them as dead */
     for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
         for (int j = r->states[state_nr]->nr_transitions - 1; j >= 0; j--) {
             if (r->states[state_nr]->transitions[j]->status == ts_epsilon) {
@@ -591,9 +591,9 @@ static int remove_epsilon_transitions(regex* r) {
         }
     }
 
-    // make a list of all symbols the automaton knows
+    /* make a list of all symbols the automaton knows */
     int nr_symbols = 0;
-    char* symbols = NULL;
+    vector* symbols = new_vector(sizeof(char), NULL);
 
     for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
         for (int transition_nr = 0;
@@ -603,35 +603,32 @@ static int remove_epsilon_transitions(regex* r) {
                     ts_active &&
                 !contains(
                     r->states[state_nr]->transitions[transition_nr]->symbol,
-                    symbols, nr_symbols)) {
-                symbols = realloc(symbols, ++nr_symbols * sizeof(char));
-                symbols[nr_symbols - 1] =
-                    r->states[state_nr]->transitions[transition_nr]->symbol;
+                    symbols->content, symbols->size)) {
+                vector_push(
+                    symbols,
+                    &(r->states[state_nr]->transitions[transition_nr]->symbol));
             }
         }
     }
 
 
-    // iterate over all states and write the new transitions
+    /* iterate over all states and write the new transitions */
     for (int state_nr = 0; state_nr < r->nr_states; state_nr++) {
         vector* current_epsilon_closure;
         vector_get_at(epsilon_closure_list, state_nr, &current_epsilon_closure);
 
-        // iterate over possible symbols
-        for (int symbol_iterator = 0; symbol_iterator < nr_symbols;
-             symbol_iterator++) {
-
-            // mark all states as not reachable
+        /* iterate over all possible symbols */
+        char symbol;
+        vector_reset_iterator(symbols);
+        while (vector_next(symbols, &symbol)) {
+            /* mark all states as not reachable */
             vector_reset_iterator(marked);
             do {
                 vector_set(marked, &null_const);
             } while (vector_move_iterator(marked));
 
-            char symbol = symbols[symbol_iterator];
-
-            // iterate over all states in the epsilon closure
-            // mark their successor if they have a transition with the
-            // current symbol
+            /* iterate over all states in the epsilon closure mark their
+             * successor if they have a transition with the current symbol */
             vector_reset_iterator(current_epsilon_closure);
             int processed_state;
             while (vector_next(current_epsilon_closure, &processed_state)) {
@@ -651,9 +648,9 @@ static int remove_epsilon_transitions(regex* r) {
                 }
             }
 
-            // now all states directly reachable with symbol from the
-            // current epsilon closure are marked -> mark the epsilon
-            // closure of those states
+            /* now all states directly reachable with symbol from the current
+             * epsilon closure are marked -> mark the epsilon closure of those
+             * states */
             for (int checked_state = 0; checked_state < r->nr_states;
                  checked_state++) {
                 int is_reachable;
@@ -671,9 +668,11 @@ static int remove_epsilon_transitions(regex* r) {
                 }
             }
 
-            // remove duplicates: iterate over the current state's
-            // transitions and unmark all states that are already reachable
-            // with the current symbol
+            /* remove duplicates: iterate over the current state's transitions
+             * and unmark all states that are already reachable with the current
+             * symbol; if not done, the nfa->dfa conversion can create endless
+             * loops by building state sets that contain the same state multiple
+             * times */
             for (int transition_iterator = 0;
                  transition_iterator < r->states[state_nr]->nr_transitions;
                  transition_iterator++) {
@@ -691,8 +690,8 @@ static int remove_epsilon_transitions(regex* r) {
                 }
             }
 
-            // now all states that can be reached with symbol are marked
-            // so finally, we can add transitions for them
+            /* now all states that can be reached with symbol are marked so
+             * finally, we can add transitions for them */
             int is_reachable;
             vector_reset_iterator(marked);
             while (vector_next(marked, &is_reachable)) {
@@ -709,7 +708,7 @@ static int remove_epsilon_transitions(regex* r) {
         }
     }
 
-    free(symbols);
+    delete_vector(&symbols);
     delete_vector(&marked);
     delete_vector(&epsilon_closure_size);
     vector* temp_vector;
