@@ -1,8 +1,0 @@
-- implement named character classes like [:alnum:]
-- implement match all function
-- implement compile and match function
-- replace vector-array conversion by simply using the pointer + size of the array (ugly but way faster)
-- fix memory leaks :)
-- minify the compiled automaton (optional, maybe faster without)
-- implement markers, e.g. 'ab<c*>de' with input 'abccde' matches and returns 'cc'
-- remove line_start and line_end markers from regex
